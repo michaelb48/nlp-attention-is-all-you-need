@@ -71,7 +71,7 @@ class Transformer(nn.Module):
         # init parameters
         for p in self.parameters():
             if len(p.size()) > 1:
-                p = nn.init.xavier_normal_(p)
+                nn.init.xavier_normal_(p)
 
     def get_attention_mask(self, padded_seq: torch.Tensor, masked_attention:bool = False) -> torch.Tensor:
         # use broadcast to create mask
