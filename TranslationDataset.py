@@ -15,7 +15,7 @@ class TranslationDataset(Dataset):
 
     def __getitem__(self, idx):
         # Adding start and end tokens
-        en_tokens = [self.start_token] + self.en_sentences[idx] + [self.end_token] # sos + sentence + eos
+        en_tokens = self.en_sentences[idx] + [self.end_token] # sos + sentence + eos
         de_tokens = [self.start_token] + self.de_sentences[idx] + [self.end_token] # sos + sentence + eos
 
         return {
@@ -36,11 +36,13 @@ def collate_batch(batch, vocab):
         de_sequences.append(de_indices)
 
     # Find the maximum length in either language
-    max_len = max(max(len(seq) for seq in en_sequences), max(len(seq) for seq in de_sequences))
+    max_len_en = max(len(seq) for seq in en_sequences)
+    max_len_de = max(len(seq) for seq in de_sequences)
+    max_len = max(max_len_en, max_len_de)
 
     # Pad sequences based on the maximum length
-    en_padded = torch.stack([torch.cat([seq, torch.full((max_len - len(seq),), vocab['<mask>'])]) for seq in en_sequences])
-    de_padded = torch.stack([torch.cat([seq, torch.full((max_len - len(seq),), vocab['<mask>'])]) for seq in de_sequences])
+    en_padded = torch.stack([torch.cat([seq, torch.full((max_len_en - len(seq),), vocab['<mask>'])]) for seq in en_sequences])
+    de_padded = torch.stack([torch.cat([seq, torch.full((max_len_de - len(seq),), vocab['<mask>'])]) for seq in de_sequences])
 
     # Return padded tensors and original sequence lengths
     return en_padded, de_padded, torch.tensor([len(seq) for seq in en_sequences]), torch.tensor([len(seq) for seq in de_sequences])
