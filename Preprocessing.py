@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import Dict
 import pandas as pd
 import json
 import os
@@ -51,7 +51,7 @@ def prepare_corpus(corpus_config: Dict = None):
 
         logger.info(f'Normalized corpus exists already at {normalized_path}. Existing file is used instead.')
 
-        return pd.read_csv(normalized_path), normalized_path
+        return pd.read_csv(normalized_path, names=['en', 'de']), normalized_path
 
     # prepare lists to hold all sentences in the files
     english_sentences = []
