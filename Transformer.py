@@ -74,7 +74,7 @@ class Transformer(nn.Module):
 
     def get_attention_mask(self, padded_seq: torch.Tensor, masked_attention:bool = False) -> torch.Tensor:
         # use broadcast to create mask
-        mask = (padded_seq != self.padding).unsqueeze(-2)
+        mask = (padded_seq != self.padding).unsqueeze(-2).to(self.device)
         if masked_attention:
             seq_len = padded_seq.size()[-1]
             decoder_mask = torch.ones(1, seq_len, seq_len).to(self.device)

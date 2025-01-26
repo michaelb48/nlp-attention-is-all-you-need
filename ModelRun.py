@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
-from datasets import load_metric
 import sentencepiece as spm
 from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
@@ -64,7 +63,7 @@ def eval_fn(model, dataloader, criterion, device, sp):
     references = []
 
     # Load the BLEU metric
-    bleu = load_metric("bleu")
+    # bleu = load_metric("bleu")
 
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     with torch.no_grad():
@@ -73,6 +72,7 @@ def eval_fn(model, dataloader, criterion, device, sp):
             target = batch[1].to(device)
 
             # forward pass
+            optimizer.zero_grad()
             output = model(source, target[:, :-1])
 
             # calculate the loss
@@ -103,7 +103,7 @@ def eval_fn(model, dataloader, criterion, device, sp):
     # print(f"hypotheses: {hypotheses}")
     # print(f"references: {references}")
     # Compute the BLEU score
-    bleu_score = bleu.compute(predictions=hypotheses, references=references)
+    bleu_score = 0 # bleu.compute(predictions=hypotheses, references=references)
 
     return perplexity, bleu_score
 

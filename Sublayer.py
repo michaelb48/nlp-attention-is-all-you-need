@@ -1,7 +1,6 @@
 import torch.nn as nn
 import math
 import torch
-import torch.nn.functional as F
 
 class MHAttention(nn.Module):
     def __init__(self,
@@ -26,6 +25,22 @@ class MHAttention(nn.Module):
 
         # use another linear layer to project the concatenation after attention of each head was computed
         self.concat_proj = nn.Linear(self.t_heads * self.d_v, d_model, bias=False)
+
+    # this code draws heavily from https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html#torch.nn.functional.scaled_dot_product_attention
+    def scaled_dot_product_attention(query, key, value, attn_mask=None, scale=None) -> torch.Tensor:
+
+        L, S = query.size(-2), key.size(-2)
+
+        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+        attn_bias = torch.zeros(L, S, dtype=query.dtype)
+
+        if attn_mask is not None:
+            attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
+
+        attn_weight = query @ key.transpose(-2, -1) * scale_factor
+        attn_weight += attn_bias
+        attn_weight = torch.softmax(attn_weight, dim=-1)
+        return attn_weight @ value
 
     # this code draws heavily from https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html#torch.nn.functional.scaled_dot_product_attention
     def scaled_attention(query, key, value, attn_mask=None, scale=None) -> torch.Tensor:
@@ -68,9 +83,7 @@ class MHAttention(nn.Module):
         keys = keys.transpose(1, 2)
         values = values.transpose(1, 2)
         if t_dot_product:
-            attention_values = F.scaled_dot_product_attention(query=queries, key=keys, value=values, attn_mask=seq_mask)
-        else:
-            attention_values = self.scaled_attention(query=queries, key=keys, value=values, attn_mask=seq_mask)
+            attention_values = self.scaled_dot_product_attention(query=queries, key=keys, value=values, attn_mask=seq_mask)
 
         # Now we need to transpose the heads back like in the lecture:b x n x h x d/h <- b x h x n x d/h
         attention_values = attention_values.transpose(1, 2)
