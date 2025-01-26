@@ -52,7 +52,7 @@ def collate_batch(batch, vocab):
     return en_padded, de_padded, de_labels_padded, torch.tensor([len(seq) for seq in en_sequences]), torch.tensor([len(seq) for seq in de_sequences])
 
 def create_train_val_dataloaders(dataset, batch_size, vocab, val_split=0.1, shuffle=True):
-    val_length = int(len(dataset) * 0.9999)
+    val_length = int(len(dataset) * 0)
     train_length = len(dataset) - val_length
     
     dataset, _ = random_split(
