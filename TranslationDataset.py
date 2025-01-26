@@ -26,7 +26,6 @@ class TranslationDataset(Dataset):
 def collate_batch(batch, vocab):
     en_sequences = []
     de_sequences = []
-    de_labels = []
 
     # Replace piece tokens with IDs and for unknown pieces, use the <unk> ID
     for item in batch:

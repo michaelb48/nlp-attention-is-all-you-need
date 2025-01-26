@@ -175,8 +175,8 @@ def run_pre_processing(corpus_config: Dict = None, bpe_model_config: Dict = None
 
     # store the encoded dataframe
     # Extract the filename from the path
-    encoded_corpus_path = corpus_path.replace(".txt", "_encoded.txt")
-    df_encoded.to_csv(encoded_corpus_path, index=False, header=False)
+    encoded_corpus_path = corpus_path.replace(".txt", "_encoded.pkl")
+    df_encoded.to_pickle(encoded_corpus_path)
 
     logger.info('Preprocessing was successful.')
 

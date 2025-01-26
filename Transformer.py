@@ -60,7 +60,6 @@ class Transformer(nn.Module):
 
         # define the linear layer for the projection before softmax; this layer shares the weights with the embedding layers
         self.linear_to_vocab = nn.Linear(d_model, n_vocab_len, bias=False)
-        self.linear_to_vocab.weight.data = self.vocab_embedding.weight.data.transpose(0,1)
 
         # according to the paper the weights were scaled in the embedding
         self.scaling = math.sqrt(self.d_model)

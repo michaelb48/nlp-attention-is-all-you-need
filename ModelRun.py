@@ -7,7 +7,6 @@ from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
 from datasets import load_metric
 import sentencepiece as spm
-
 from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
 
@@ -173,19 +172,20 @@ def train_transformer(model, train_dataloader, val_dataloader, vocab_size, num_e
 
 if __name__ == '__main__':
 
-    df_corpus = pd.read_csv('corpus/corpus_normalized.txt', names=['en','de'])
+    df_corpus = pd.read_pickle('corpus/corpus_normalized_encoded.pkl')
+
     vocab = spm.SentencePieceProcessor()
     vocab.load('bpe/corpus_bpe_model.model')
     vocab_size = vocab.get_piece_size()
     sb_vocab = [vocab.id_to_piece(i) for i in range(vocab_size)]
     sb_vocab_dict = {sb_vocab[i]: i for i in range(vocab_size)}
 
-    dataset = TranslationDataset(df_corpus,vocab)
+    dataset = TranslationDataset(df_corpus,sb_vocab)
 
     train_dataloader,val_dataloader = create_train_val_dataloaders(
         dataset,
         batch_size=32,
-        vocab=vocab,
+        vocab=sb_vocab_dict,
         val_split=0.3
     )
 
