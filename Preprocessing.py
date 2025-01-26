@@ -4,7 +4,6 @@ import json
 import os
 import sentencepiece as spm
 import logging
-from IPython.display import display
 
 
 # get configuration for the preprocessing of the corpus and embeddings
