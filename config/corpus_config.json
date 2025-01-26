@@ -1,0 +1,13 @@
+{
+  "corpuse_path": "corpus",
+  "datasets": [
+    {
+      "src": "europarl-v7.de-en.en",
+      "tgt": "europarl-v7.de-en.de"
+    },
+    {
+      "src": "commoncrawl.de-en.en",
+      "tgt": "commoncrawl.de-en.de"
+    }
+  ]
+}

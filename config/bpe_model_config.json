@@ -1,0 +1,16 @@
+{
+  "model_prefix": "bpe",
+  "vocab_size": 37000,
+  "character_coverage": 0.999,
+  "model_type": "bpe",
+  "pad_id": 0,
+  "unk_id": 1,
+  "bos_id": 2,
+  "eos_id": 3,
+  "user_defined_symbols": [
+    "<cls>",
+    "<sep>",
+    "<mask>"
+  ],
+  "normalization_rule_name": "identity"
+}
