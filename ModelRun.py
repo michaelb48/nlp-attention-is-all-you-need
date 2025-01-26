@@ -21,7 +21,6 @@ def train_fn(model, dataloader, optimizer, criterion, device, epoch, scheduler, 
 
         source = batch[0].to(device)
         target = batch[1].to(device)
-        labels = batch[2]
 
         # forward pass
         optimizer.zero_grad()
