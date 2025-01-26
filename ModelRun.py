@@ -1,137 +1,200 @@
-import deepspeed
+import time
+import pandas as pd
+import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
-from torch.nn import CrossEntropyLoss
-from torch.optim import AdamW
+import torch.nn as nn
+from torch.optim.lr_scheduler import LambdaLR
+from tqdm import tqdm
+from datasets import load_metric
+import sentencepiece as spm
 
-# Assuming you have your Transformer model implemented as `Transformer`
-model = Transformer(
-    n_vocab_len=37000,
-    i_vocab_padding=0,
-    d_model=512,
-    device="cuda"
-).to("cuda")
-
-# Custom Dataset (Placeholder)
-class CustomDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        return self.data[idx]
-
-# Dummy data (replace with real data)
-train_data = [
-    (torch.randint(0, 37000, (50,)), torch.randint(0, 37000, (50,))) for _ in range(1000)
-]
-train_dataset = CustomDataset(train_data)
-train_dataloader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-
-# Loss function
-criterion = CrossEntropyLoss(ignore_index=0)
-
-# DeepSpeed Configuration
-ds_config = "ds_config.json"  # Path to your DeepSpeed config file
-parameters = filter(lambda p: p.requires_grad, model.parameters())
-
-# Initialize DeepSpeed
-model_engine, optimizer, _, _ = deepspeed.initialize(
-    model=model,
-    model_parameters=parameters,
-    config=ds_config
-)
-
-# Training Loop
-epochs = 3
-for epoch in range(epochs):
-    model_engine.train()
-    for step, (src, tgt) in enumerate(train_dataloader):
-        src, tgt = src.to("cuda"), tgt.to("cuda")
-        output = model_engine(src, tgt)
-
-        # Flatten the logits and labels for CrossEntropy
-        logits = output.view(-1, output.size(-1))
-        labels = tgt.view(-1)
-
-        # Compute loss
-        loss = criterion(logits, labels)
-
-        # Backpropagation and optimization
-        model_engine.backward(loss)
-        model_engine.step()
-
-        if step % 10 == 0:
-            print(f"Epoch {epoch + 1}, Step {step}, Loss: {loss.item()}")
+from Transformer import Transformer
+from TranslationDataset import TranslationDataset, create_train_val_dataloaders
 
 
+def train_fn(model, dataloader, optimizer, criterion, device, epoch, scheduler, clip=1.0):
+    model.train()
+    total_loss = 0
+    steps = 0
+    tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
+    output = None
+    for batch in tk0:
 
-# From Janick's notebook
+        source = batch[0].to(device)
+        target = batch[1].to(device)
+        labels = batch[2]
 
-# Loading BPE model
-sp = spm.SentencePieceProcessor()
-sp.load('bpe_model.model')
+        # forward pass
+        optimizer.zero_grad()
+        output = model(source, target[:, :-1])
 
-sp = spm.SentencePieceProcessor()
-sp.load('bpe_model.model')
-sb_vocab_size = sp.get_piece_size()
-sb_vocab = [sp.id_to_piece(i) for i in range(sb_vocab_size)]
-sb_vocab_dict = {sb_vocab[i]: i for i in range(sb_vocab_size)}
+        # calculate the loss
+        loss = criterion(
+            output.view(-1, output.size(-1)),  # (batch_size * (target_seq_len - 1), vocab_size)
+            target[:, 1:].contiguous().view(-1)  # (batch_size * (target_seq_len - 1))
+        )
 
-# Loading dataset
-df_encoded = pd.read_pickle("df_encoded.pkl")
-dataset = TranslationDataset(df_encoded, sb_vocab)
-train_dataloader, valid_dataloader = create_train_val_dataloaders(
+        total_loss += loss.item()
+        steps += 1
+
+        output = output.argmax(dim=-1)
+        # backward pass
+        loss.backward()
+        # clip gradients to avoid exploding gradients issue
+        nn.utils.clip_grad_norm_(model.parameters(), clip)
+        # update model parameters
+        optimizer.step()
+        scheduler.step()
+
+        # Log progress
+        if steps % 100 == 0:
+            print(
+                f'Epoch: {epoch}, Batch: {steps}, Loss: {loss.item():.4f}, Learning Rate: {scheduler.get_last_lr()[0]:.7f}')
+
+        tk0.set_postfix(loss=total_loss / steps)
+    tk0.close()
+    perplexity = np.exp(total_loss / len(dataloader))
+
+    return perplexity
+
+
+def eval_fn(model, dataloader, criterion, device, sp):
+    model.eval()
+    total_loss = 0.0
+    steps = 0
+    hypotheses = []
+    references = []
+
+    # Load the BLEU metric
+    bleu = load_metric("bleu")
+
+    tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
+    with torch.no_grad():
+        for batch in tk0:
+            source = batch[0].to(device)
+            target = batch[1].to(device)
+
+            # forward pass
+            output = model(source, target[:, :-1])
+
+            # calculate the loss
+            loss = criterion(
+                output.view(-1, output.size(-1)),  # (batch_size * (target_seq_len - 1), vocab_size)
+                target[:, 1:].contiguous().view(-1)  # (batch_size * (target_seq_len - 1))
+            )
+
+            total_loss += loss.item()
+            steps += 1
+            output = output.argmax(dim=-1)
+            target = target[:, 1:]
+
+            # converting the ids to tokens for bleu score
+            # pred_tokens = convert_ids_to_text(output, de_text.vocab, EOS_IDX, UNK_IDX)
+            # target_tokens = convert_ids_to_text(target, de_text.vocab, EOS_IDX, UNK_IDX)
+            pred_tokens = sp.encode_as_pieces(sp.decode(output[0].cpu().tolist()))
+            target_tokens = sp.encode_as_pieces(sp.decode(target[0].cpu().tolist()))
+            print("Expected Output:", target_tokens)
+            print("Predicted Output:", pred_tokens)
+            hypotheses += pred_tokens
+            references += [[token] for token in target_tokens if token != '<mask>']
+            tk0.set_postfix(loss=total_loss / steps)
+    tk0.close()
+    perplexity = np.exp(total_loss / len(dataloader))
+    references = [[[item[0] for item in references]]]
+    hypotheses = [hypotheses]
+    # print(f"hypotheses: {hypotheses}")
+    # print(f"references: {references}")
+    # Compute the BLEU score
+    bleu_score = bleu.compute(predictions=hypotheses, references=references)
+
+    return perplexity, bleu_score
+
+
+def train_transformer(model, train_dataloader, val_dataloader, vocab_size, num_epochs,
+                      save_path, save_interval,sp, patience=5, avg_n_weights=5,
+                      device='cuda'):
+    """
+    Train the transformer model with validation using perplexity.
+
+    Args:
+        model: Transformer model
+        train_dataloader: DataLoader for training data
+        val_dataloader: DataLoader for validation data
+        vocab_size: Size of vocabulary
+        num_epochs: Number of training epochs
+        save_path: Path to save model checkpoints
+        save_interval: Save model every N iterations
+        patience: Number of epochs to wait for improvement before early stopping
+        avg_n_weights: average the weights of the model every N iterations
+        device: Device to train on
+    """
+
+    # these parameters are based on the paper
+    model = model.to(device)
+    criterion = nn.CrossEntropyLoss(ignore_index=5)  # Ignore padding index
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.044, betas=(0.9, 0.98), eps=1e-9)
+
+    # Learning rate scheduler
+    def lr_lambda(step):
+        warmup_steps = 4000
+        step = max(1, step)
+        return min(step ** (-0.5), step * warmup_steps ** (-1.5))
+
+    scheduler = LambdaLR(optimizer, lr_lambda)
+
+    # Tracking the number of steps and the time during training and evaluation
+    global_step = 0
+    start_time = time.time()  # Total training start time
+    last_save_time = start_time  # Time of the last model save
+
+    # Tracking the best perplexity and bleu score
+    best_perplexity = float('inf')
+    best_bleu = float('-inf')
+    epochs_without_improvement = 0
+    best_model_state = None
+
+    # List to store previous state_dict copies for averaging
+    prev_state_dicts = []
+
+    for epoch in range(num_epochs):
+        epoch_start_time = time.time()  # Epoch start time
+
+        # Training phase
+        training_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, epoch, scheduler)
+
+        # Validation phase
+        validation_perplexity, validation_bleu = eval_fn(model, val_dataloader, criterion, device, sp)
+
+        print(
+            f'Epoch: {epoch}, Train perplexity: {training_perplexity:.4f}, Valid perplexity: {validation_perplexity:.4f}, Valid BLEU4: {validation_bleu:.4f}')
+
+    return model, best_perplexity
+
+
+if __name__ == '__main__':
+
+    df_corpus = pd.read_csv('corpus/corpus_normalized.txt', names=['en','de'])
+    vocab = spm.SentencePieceProcessor()
+    vocab.load('bpe/corpus_bpe_model.model')
+    vocab_size = vocab.get_piece_size()
+    sb_vocab = [vocab.id_to_piece(i) for i in range(vocab_size)]
+    sb_vocab_dict = {sb_vocab[i]: i for i in range(vocab_size)}
+
+    dataset = TranslationDataset(df_corpus,vocab)
+
+    train_dataloader,val_dataloader = create_train_val_dataloaders(
         dataset,
         batch_size=32,
-        vocab=sb_vocab_dict,
-        val_split=0.1
+        vocab=vocab,
+        val_split=0.3
     )
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Using device:", device)
 
-model = Transformer(n_vocab_len=sb_vocab_size,i_vocab_padding = sb_vocab_dict['<mask>']).to(device)
+    model = Transformer(
+        n_vocab_len=vocab_size,
+        i_vocab_padding=sb_vocab_dict['<mask>']
+    )
 
-criterion = nn.CrossEntropyLoss(ignore_index=5)  # Ignore padding index
-optimizer = torch.optim.Adam(model.parameters(), lr=0.044, betas=(0.9, 0.98), eps=1e-9)
-    
-# Learning rate scheduler
-# def lr_lambda(step):
-#     warmup_steps = 4000
-#     step = max(1, step)
-#     return min(step ** (-0.5), step * warmup_steps ** (-1.5))
+    train_transformer(model,train_dataloader,val_dataloader,vocab_size,1,'/model',100,vocab)
 
-# scheduler = LambdaLR(optimizer, lr_lambda)
 
-best_bleu4 = float('-inf')
-es_patience = 3
-patience = 0
-model_path = 'model.pth'
-N_EPOCHS = 10
-CLIP = 1.0
-
-for epoch in range(0, N_EPOCHS + 1):
-    # one epoch training
-    _, train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, CLIP)
-    
-    # one epoch validation
-    _, valid_perplexity, valid_bleu4 = eval_fn(model, valid_dataloader, criterion)
-    
-    print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu4:.4f}')
-    
-    # early stopping
-    is_best = valid_bleu4 > best_bleu4
-    if is_best:
-        print(f'BLEU score improved ({best_bleu4:.4f} -> {valid_bleu4:.4f}). Saving Model!')
-        best_bleu4 = valid_bleu4
-        patience = 0
-        torch.save(model.state_dict(), model_path)
-    else:
-        patience += 1
-        print(f'Early stopping counter: {patience} out of {es_patience}')
-        if patience == es_patience:
-            print(f'Early stopping! Best BLEU4: {best_bleu4:.4f}')
-            break
