@@ -1,3 +1,6 @@
+import torch
+from torch.utils.data import Dataset, DataLoader, random_split
+
 class TranslationDataset(Dataset):
     def __init__(self, dataframe, vocab, start_token="<s>", end_token="</s>", pad_token="<mask>"):
         self.en_sentences = dataframe['en'].tolist()
@@ -14,12 +17,10 @@ class TranslationDataset(Dataset):
         # Adding start and end tokens
         en_tokens = [self.start_token] + self.en_sentences[idx] + [self.end_token] # sos + sentence + eos
         de_tokens = [self.start_token] + self.de_sentences[idx] + [self.end_token] # sos + sentence + eos
-        de_labels = self.de_sentences[idx] + [self.end_token] # sentence + eos
 
         return {
             'en': en_tokens,
-            'de': de_tokens,
-            'de_labels': de_labels
+            'de': de_tokens
         }
 
 def collate_batch(batch, vocab):
@@ -31,11 +32,9 @@ def collate_batch(batch, vocab):
     for item in batch:
         en_indices = torch.tensor([vocab.get(token, vocab['<unk>']) for token in item['en']])
         de_indices = torch.tensor([vocab.get(token, vocab['<unk>']) for token in item['de']])
-        de_labels_indices = torch.tensor([vocab.get(token, vocab['<unk>']) for token in item['de_labels']])
 
         en_sequences.append(en_indices)
         de_sequences.append(de_indices)
-        de_labels.append(de_labels_indices)
 
     # Find the maximum length in either language
     max_len = max(max(len(seq) for seq in en_sequences), max(len(seq) for seq in de_sequences))
@@ -43,13 +42,9 @@ def collate_batch(batch, vocab):
     # Pad sequences based on the maximum length
     en_padded = torch.stack([torch.cat([seq, torch.full((max_len - len(seq),), vocab['<mask>'])]) for seq in en_sequences])
     de_padded = torch.stack([torch.cat([seq, torch.full((max_len - len(seq),), vocab['<mask>'])]) for seq in de_sequences])
-    de_labels_padded = torch.stack([torch.cat([seq, torch.full((max_len - len(seq),), vocab['<mask>'])]) for seq in de_labels])
-    #print(f"de_labels_padded: {de_labels_padded.shape}")
-    #print(en_padded.shape)
-    #print(de_padded.shape)
 
     # Return padded tensors and original sequence lengths
-    return en_padded, de_padded, de_labels_padded, torch.tensor([len(seq) for seq in en_sequences]), torch.tensor([len(seq) for seq in de_sequences])
+    return en_padded, de_padded, torch.tensor([len(seq) for seq in en_sequences]), torch.tensor([len(seq) for seq in de_sequences])
 
 def create_train_val_dataloaders(dataset, batch_size, vocab, val_split=0.1, shuffle=True):
     val_length = int(len(dataset) * 0)
