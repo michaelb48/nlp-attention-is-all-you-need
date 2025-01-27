@@ -6,9 +6,9 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
 import sentencepiece as spm
-from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
 
+from Copy import Transformer, Encoder, Decoder, Generator
 
 def train_fn(model, dataloader, optimizer, criterion, device, epoch, scheduler, clip=1.0):
     model.train()
@@ -189,11 +189,29 @@ if __name__ == '__main__':
     )
 
 
-    model = Transformer(
-        n_vocab_len=vocab_size,
-        i_vocab_padding=sb_vocab_dict['<mask>'],
-        device='cuda'
-    )
+    #model = Transformer(
+    #    n_vocab_len=vocab_size,
+    #    i_vocab_padding=sb_vocab_dict['<mask>'],
+    #    device='cuda'
+    #)
+
+    # hyperparameters
+    INPUT_SIZE = vocab_size
+    OUTPUT_SIZE = vocab_size
+    HIDDEN_SIZE = 512
+    N_LAYERS = 6
+    N_HEADS = 8
+    FF_SIZE = 2048
+    DROPOUT_RATE = 0.1
+    N_EPOCHS = 1
+    PAD_IDX=sb_vocab_dict['<mask>']
+
+
+    encoder = Encoder(INPUT_SIZE, HIDDEN_SIZE, N_LAYERS, N_HEADS, FF_SIZE, PAD_IDX, DROPOUT_RATE)
+    decoder = Decoder(OUTPUT_SIZE, HIDDEN_SIZE, N_LAYERS, N_HEADS, FF_SIZE, PAD_IDX, DROPOUT_RATE)
+    generator = Generator(HIDDEN_SIZE, OUTPUT_SIZE)
+
+    model = Transformer(encoder, decoder, generator, PAD_IDX).to('cuda')
 
     train_transformer(model,train_dataloader,val_dataloader,vocab_size,1,'../model',100, vocab)
 

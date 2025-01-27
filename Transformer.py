@@ -91,8 +91,9 @@ class Transformer(nn.Module):
 
     def forward(self, input_seq_padded, target_seq_padded):
         # create attention masks for relevant tokens
-        src_seq_mask = self.get_attention_mask(input_seq_padded).to(self.device)
-        target_seq_mask = self.get_attention_mask(target_seq_padded).to(self.device) & self.get_subsequent_mask(target_seq_padded).to(self.device)
+        src_seq_mask = self.get_attention_mask(input_seq_padded)
+        target_seq_mask = self.get_attention_mask(target_seq_padded) & self.get_subsequent_mask(target_seq_padded).to(self.device)
+
 
         # get embeddings and scale with scaling value
         src_seq_embedding = self.vocab_embedding(input_seq_padded) * (self.scaling)
