@@ -22,7 +22,6 @@ def train_fn(model, dataloader, optimizer, criterion, device, epoch, scheduler, 
         target = batch[1].to(device)
 
         # forward pass
-        optimizer.zero_grad()
         output, _ = model(source, target[:, :-1])
 
         # calculate the loss
@@ -42,12 +41,13 @@ def train_fn(model, dataloader, optimizer, criterion, device, epoch, scheduler, 
         # update model parameters
         optimizer.step()
         scheduler.step()
+        optimizer.zero_grad()
 
         # Log progress
         if steps % 100 == 0:
             print(
                 f'Epoch: {epoch}, Batch: {steps}, Loss: {loss.item():.4f}, Learning Rate: {scheduler.get_last_lr()[0]:.7f}')
-
+            print(torch.cuda.memory_summary(device=torch.device('cuda')))
         tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
     perplexity = np.exp(total_loss / len(dataloader))
@@ -72,7 +72,6 @@ def eval_fn(model, dataloader, criterion, device, sp):
             target = batch[1].to(device)
 
             # forward pass
-            optimizer.zero_grad()
             output, _ = model(source, target[:, :-1])
 
             # calculate the loss
@@ -126,6 +125,8 @@ def train_transformer(model, train_dataloader, val_dataloader, vocab_size, num_e
         avg_n_weights: average the weights of the model every N iterations
         device: Device to train on
     """
+    # clean gpu
+    torch.cuda.empty_cache()
 
     # these parameters are based on the paper
     model = model.to(device)
@@ -211,7 +212,7 @@ if __name__ == '__main__':
     decoder = Decoder(OUTPUT_SIZE, HIDDEN_SIZE, N_LAYERS, N_HEADS, FF_SIZE, PAD_IDX, DROPOUT_RATE)
     generator = Generator(HIDDEN_SIZE, OUTPUT_SIZE)
 
-    model = Transformer(encoder, decoder, generator, PAD_IDX).to('cuda')
+    model = Transformer(encoder, decoder, generator, PAD_IDX)
 
     train_transformer(model,train_dataloader,val_dataloader,vocab_size,1,'../model',100, vocab)
 
