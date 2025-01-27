@@ -11,15 +11,12 @@ class ScaledDotProductAttention(nn.Module):
     def forward(self, query, key, value, attn_mask=None, scale=None):
         scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
 
-        attn = torch.matmul(query, key.transpose(-2, -1))
-        attn = attn * scale_factor
+        attn = torch.matmul(query, key.transpose(-2, -1)) * scale_factor
 
         if attn_mask is not None:
             attn = attn.masked_fill(attn_mask == 0, float('-inf'))
 
-        attn_weight = torch.softmax(attn, dim=-1)
-
-        return torch.matmul(attn_weight, value)
+        return torch.matmul(torch.softmax(attn, dim=-1), value)
 
 class MHAttention(nn.Module):
     def __init__(self,
@@ -44,21 +41,16 @@ class MHAttention(nn.Module):
         self.value_proj = nn.Linear(self.d_model, self.t_heads * self.d_v, bias=False)
 
         # use our scaled-dot-product-attention
-        #if t_dot_product:
-        #    self.scaled_dot_product_attention = ScaledDotProductAttention()
-        #else:
+        if t_dot_product:
+            self.scaled_dot_product_attention = ScaledDotProductAttention()
+        else:
             #this will be changed to our extension of the paper
-        #    self.scaled_dot_product_attention = ScaledDotProductAttention()
+            self.scaled_dot_product_attention = ScaledDotProductAttention()
 
         # use another linear layer to project the concatenation after attention of each head was computed
         self.concat_proj = nn.Linear(self.t_heads * self.d_v, d_model, bias=False)
 
     def forward(self, query, key, value, seq_mask):
-        # perform linear projections
-        queries = self.query_proj(query)
-        keys = self.key_proj(key)
-        values = self.value_proj(value)
-
         # get different view of the matrices to represent separate attention heads; use torch.view to create copy to not change residual
         # used the second answer in this https://stackoverflow.com/questions/42479902/what-does-view-do-in-pytorch
         batch_size = query.size(0)
@@ -66,30 +58,20 @@ class MHAttention(nn.Module):
         keys_len = key.size(1)
         values_len = value.size(1)
 
-        queries = queries.view(batch_size, queries_len, self.t_heads, self.d_k)
-        keys = keys.view(batch_size, keys_len, self.t_heads, self.d_k)
-        values = values.view(batch_size, values_len, self.t_heads, self.d_v)
-
-        # mask is only passed for the sequence; the size of mask is batch x se_len x d_model; in order to perform broadcast we need one more dimension for every head
+         # mask is only passed for the sequence; the size of mask is batch x se_len x d_model; in order to perform broadcast we need one more dimension for every head
         seq_mask = seq_mask.unsqueeze(1)  # dimension is one because 0 is batch
 
         # Now we need to transpose the heads like in the lecture:b x n x h x d/h -> b x h x n x d/h
-        queries = queries.transpose(1, 2)
-        keys = keys.transpose(1, 2)
-        values = values.transpose(1, 2)
+        queries = self.query_proj(query).view(batch_size, queries_len, self.t_heads, self.d_k).transpose(1,2)
+        keys = self.key_proj(key).view(batch_size, keys_len, self.t_heads, self.d_k).transpose(1,2)
+        values = self.value_proj(value).view(batch_size, values_len, self.t_heads, self.d_v).transpose(1,2)
 
-        # pass to the scaled dot product attention
-        attention_values = F.scaled_dot_product_attention(queries, keys, values, seq_mask)
-        #attention_values = self.scaled_dot_product_attention(queries, keys, values, seq_mask)
+        # pass to the scaled dot product attention and transpose back
+        #attention_values = F.scaled_dot_product_attention(queries, keys, values, seq_mask).transpose(1,2)
+        attention_values = self.scaled_dot_product_attention(queries, keys, values, seq_mask).transpose(1,2)
 
-        # Now we need to transpose the heads back like in the lecture:b x n x h x d/h <- b x h x n x d/h
-        attention_values = attention_values.transpose(1, 2)
-
-        # get original view of the matrix to represent the concatenation of attention heads
-        attention_values = attention_values.contiguous().view(batch_size, queries_len, -1)
-
-        # return the concatenation through a linear layer
-        return self.concat_proj(attention_values)
+        # get original view of the matrix to represent the concatenation of attention heads and return the concatenation through a linear layer
+        return self.concat_proj(attention_values.contiguous().view(batch_size, queries_len, -1))
 
 
 class MHAttentionSublayer(nn.Module):
@@ -116,7 +98,7 @@ class MHAttentionSublayer(nn.Module):
 
     def forward(self, query, key, value, seq_mask):
         # store the original tensor for the residual connection; as none of the forward operations happen inplace we can simply assign
-        residual = query.detach().clone()
+        residual = query
 
         # let the input token pass forward through the operation
         op_result = self.multi_headed_attention(query=query, key=key, value=value, seq_mask=seq_mask)
@@ -174,7 +156,7 @@ class FeedForwardSublayer(nn.Module):
 
     def forward(self, value):
         # store the original tensor for the residual connection; as none of the forward operations happen inplace we can simply assign
-        residual = value.detach().clone()
+        residual = value
 
         # let the input token pass forward through the operation
         op_result = self.linear_proj(value)
