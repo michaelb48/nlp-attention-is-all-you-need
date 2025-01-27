@@ -175,7 +175,7 @@ def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
         train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, CLIP)
         
         # one epoch validation
-        valid_perplexity, valid_bleu4 = eval_fn(model, valid_dataloader, criterion, device, sp)
+        valid_perplexity, valid_bleu4 = eval_fn(model, val_dataloader, criterion, device, sp)
         
         print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu4:.4f}')
         
@@ -225,7 +225,8 @@ if __name__ == '__main__':
     print("Initializing model ...")
     model = Transformer(
         n_vocab_len=sb_vocab_size,
-        i_vocab_padding=sb_vocab_dict['<mask>']
+        i_vocab_padding=sb_vocab_dict['<mask>'],
+        device=device
     ).to(device)
 
     num_epochs = 10

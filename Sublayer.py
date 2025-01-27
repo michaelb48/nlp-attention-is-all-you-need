@@ -1,13 +1,33 @@
 import torch.nn as nn
 import math
 import torch
+import torch.nn.functional as F
+
+class ScaledDotProductAttention(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    # this code draws heavily from https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html#torch.nn.functional.scaled_dot_product_attention
+    def forward(self, query, key, value, attn_mask=None, scale=None):
+        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+
+        attn = torch.matmul(query, key.transpose(-2, -1))
+        attn = attn * scale_factor
+
+        if attn_mask is not None:
+            attn = attn.masked_fill(attn_mask == 0, float('-inf'))
+
+        attn_weight = torch.softmax(attn, dim=-1)
+
+        return torch.matmul(attn_weight, value)
 
 class MHAttention(nn.Module):
     def __init__(self,
                  d_model: int,
                  t_heads: int,
                  d_query_key_head: int,
-                 d_value_head: int
+                 d_value_head: int,
+                 t_dot_product: bool = True
                  ):
         super().__init__()
 
@@ -23,42 +43,17 @@ class MHAttention(nn.Module):
         self.query_proj = nn.Linear(self.d_model, self.t_heads * self.d_k, bias=False)
         self.value_proj = nn.Linear(self.d_model, self.t_heads * self.d_v, bias=False)
 
+        # use our scaled-dot-product-attention
+        #if t_dot_product:
+        #    self.scaled_dot_product_attention = ScaledDotProductAttention()
+        #else:
+            #this will be changed to our extension of the paper
+        #    self.scaled_dot_product_attention = ScaledDotProductAttention()
+
         # use another linear layer to project the concatenation after attention of each head was computed
         self.concat_proj = nn.Linear(self.t_heads * self.d_v, d_model, bias=False)
 
-    # this code draws heavily from https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html#torch.nn.functional.scaled_dot_product_attention
-    def scaled_dot_product_attention(query, key, value, attn_mask=None, scale=None) -> torch.Tensor:
-
-        L, S = query.size(-2), key.size(-2)
-
-        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
-        attn_bias = torch.zeros(L, S, dtype=query.dtype)
-
-        if attn_mask is not None:
-            attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
-
-        attn_weight = query @ key.transpose(-2, -1) * scale_factor
-        attn_weight += attn_bias
-        attn_weight = torch.softmax(attn_weight, dim=-1)
-        return attn_weight @ value
-
-    # this code draws heavily from https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html#torch.nn.functional.scaled_dot_product_attention
-    def scaled_attention(query, key, value, attn_mask=None, scale=None) -> torch.Tensor:
-
-        L, S = query.size(-2), key.size(-2)
-
-        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
-        attn_bias = torch.zeros(L, S, dtype=query.dtype)
-
-        if attn_mask is not None:
-            attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
-
-        attn_weight = query @ key.transpose(-2, -1) * scale_factor
-        attn_weight += attn_bias
-        attn_weight = torch.softmax(attn_weight, dim=-1)
-        return attn_weight @ value
-
-    def forward(self, query, key, value, seq_mask, t_dot_product):
+    def forward(self, query, key, value, seq_mask):
         # perform linear projections
         queries = self.query_proj(query)
         keys = self.key_proj(key)
@@ -82,8 +77,10 @@ class MHAttention(nn.Module):
         queries = queries.transpose(1, 2)
         keys = keys.transpose(1, 2)
         values = values.transpose(1, 2)
-        if t_dot_product:
-            attention_values = self.scaled_dot_product_attention(query=queries, key=keys, value=values, attn_mask=seq_mask)
+
+        # pass to the scaled dot product attention
+        attention_values = F.scaled_dot_product_attention(queries, keys, values, seq_mask)
+        #attention_values = self.scaled_dot_product_attention(queries, keys, values, seq_mask)
 
         # Now we need to transpose the heads back like in the lecture:b x n x h x d/h <- b x h x n x d/h
         attention_values = attention_values.transpose(1, 2)
@@ -103,24 +100,26 @@ class MHAttentionSublayer(nn.Module):
                  t_heads: int,
                  d_query_key_head: int,
                  d_value_head: int,
-                 t_dropout: float):
+                 t_dropout: float,
+                t_dot_product: bool
+                ):
         super().__init__()
         self.multi_headed_attention = MHAttention(d_model=d_model,
                                                   t_heads=t_heads,
                                                   d_query_key_head=d_query_key_head,
-                                                  d_value_head=d_value_head)
+                                                  d_value_head=d_value_head,
+                                                 t_dot_product=t_dot_product)
 
         self.dropout = nn.Dropout(t_dropout)
 
         self.normalization = nn.LayerNorm(d_model)
 
-    def forward(self, query, key, value, seq_mask, t_dot_product):
+    def forward(self, query, key, value, seq_mask):
         # store the original tensor for the residual connection; as none of the forward operations happen inplace we can simply assign
         residual = query.detach().clone()
 
         # let the input token pass forward through the operation
-        op_result = self.multi_headed_attention(query=query, key=key, value=value, seq_mask=seq_mask,
-                                                t_dot_product=t_dot_product)
+        op_result = self.multi_headed_attention(query=query, key=key, value=value, seq_mask=seq_mask)
 
         # apply dropout before adding residual
         op_result = self.dropout(op_result)

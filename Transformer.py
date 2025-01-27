@@ -12,6 +12,7 @@ class Transformer(nn.Module):
             self,
             n_vocab_len: int,
             i_vocab_padding: int,
+            device: str,
             d_model: int = 512,
             d_dec_ff_inner: int = 2048,
             t_dec_heads: int = 8,
@@ -22,7 +23,7 @@ class Transformer(nn.Module):
             d_query_key_head: int = 64,
             d_value_head: int = 64,
             t_dropout: float = 0.1,
-            device: str = 'cpu'
+            t_dot_product: bool = True
     ):
 
         super().__init__()
@@ -45,7 +46,8 @@ class Transformer(nn.Module):
             t_enc_heads=t_enc_heads,
             d_query_key_head=d_query_key_head,
             d_value_head=d_value_head,
-            t_dropout=t_dropout
+            t_dropout=t_dropout,
+            t_dot_product=t_dot_product
         )
 
         self.decoder = Decoder(
@@ -55,7 +57,8 @@ class Transformer(nn.Module):
             t_dec_heads=t_dec_heads,
             d_query_key_head=d_query_key_head,
             d_value_head=d_value_head,
-            t_dropout=t_dropout
+            t_dropout=t_dropout,
+            t_dot_product=t_dot_product
         )
 
         # define the linear layer for the projection before softmax; this layer shares the weights with the embedding layers
@@ -72,21 +75,25 @@ class Transformer(nn.Module):
             if len(p.size()) > 1:
                 nn.init.xavier_normal_(p)
 
-    def get_attention_mask(self, padded_seq: torch.Tensor, masked_attention:bool = False) -> torch.Tensor:
+    def get_attention_mask(self, padded_seq: torch.Tensor) -> torch.Tensor:
         # use broadcast to create mask
-        mask = (padded_seq != self.padding).unsqueeze(-2).to(self.device)
-        if masked_attention:
-            seq_len = padded_seq.size()[-1]
-            decoder_mask = torch.ones(1, seq_len, seq_len).to(self.device)
-            upper_triangle = torch.triu(decoder_mask,diagonal=1)
-            lower_triangle = 1 - upper_triangle
-            mask = lower_triangle.bool() & mask
+        mask = (padded_seq != self.padding).unsqueeze(-2)
         return mask
 
-    def forward(self, input_seq_padded, target_seq_padded, t_dot_product: bool = True):
+    def get_subsequent_mask(self, padded_seq: torch.Tensor) -> torch.Tensor:
+        # use broadcast to create mask
+        seq_len = padded_seq.size(-1)
+        decoder_mask = torch.ones(1, seq_len, seq_len)
+        upper_triangle = torch.triu(decoder_mask, diagonal=1)
+        lower_triangle = (upper_triangle == 0)
+        mask = lower_triangle.bool()
+        return mask
+
+    def forward(self, input_seq_padded, target_seq_padded):
         # create attention masks for relevant tokens
         src_seq_mask = self.get_attention_mask(input_seq_padded)
-        target_seq_mask = self.get_attention_mask(target_seq_padded,masked_attention=True)
+        target_seq_mask = self.get_attention_mask(target_seq_padded) & self.get_subsequent_mask(target_seq_padded).to(self.device)
+
 
         # get embeddings and scale with scaling value
         src_seq_embedding = self.vocab_embedding(input_seq_padded) * (self.scaling)
@@ -101,8 +108,8 @@ class Transformer(nn.Module):
         target_seq_embedding_position_encoded = self.dropout(target_seq_embedding_position_encoded)
 
         # compute encoder and decoder output
-        enc_output = self.encoder(src_seq_embedding_position_encoded, src_seq_mask, t_dot_product)
-        dec_output = self.decoder(enc_output, src_seq_mask, target_seq_embedding_position_encoded, target_seq_mask, t_dot_product)
+        enc_output = self.encoder(src_seq_embedding_position_encoded, src_seq_mask)
+        dec_output = self.decoder(enc_output, src_seq_mask, target_seq_embedding_position_encoded, target_seq_mask)
 
         # compute linear projection back to vocab
         return self.linear_to_vocab(dec_output)
