@@ -1,23 +1,20 @@
 {
-  "train_micro_batch_size_per_gpu": 16,
-  "gradient_accumulation_steps": 4,
+  "train_batch_size": 16,
+  "train_micro_batch_size_per_gpu": 1,
+  "gradient_accumulation_steps": 8,
   "optimizer": {
     "type": "AdamW",
     "params": {
-      "lr": 5e-5,
+      "lr": 1e-4,
       "betas": [0.9, 0.98],
-      "eps": 1e-8,
+      "eps": 1e-9,
       "weight_decay": 0.01
     }
   },
   "fp16": {
-    "enabled": true,
-    "loss_scale": 0
+    "enabled": true
   },
   "zero_optimization": {
-    "stage": 2,
-    "reduce_bucket_size": 5e8,
-    "allgather_bucket_size": 5e8
-  },
-  "gradient_clipping": 1.0
+    "stage": 2
+  }
 }

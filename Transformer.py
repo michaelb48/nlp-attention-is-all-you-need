@@ -100,3 +100,7 @@ class Transformer(nn.Module):
 
         # compute linear projection back to vocab
         return self.linear_to_vocab(dec_output)
+
+    # Method is necessary for fairseq beam search
+    def generate(self, src_seq, max_length=50):
+        return torch.argmax(self.forward(src_seq, src_seq), dim=-1)

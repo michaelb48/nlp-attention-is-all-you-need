@@ -9,6 +9,13 @@ import sentencepiece as spm
 from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
 from torchtext.data.metrics import bleu_score
+import os
+import deepspeed
+import torch.nn.functional as F
+from fairseq.sequence_generator import SequenceGenerator
+from fairseq.data.dictionary import Dictionary
+
+DS_FILE_PATH = 'config/ds_config.json'
 
 
 def print_training_parameters(num_epochs, save_path, save_interval, optimizer, criterion):
@@ -47,7 +54,7 @@ def train_fn(model, dataloader, optimizer, criterion, device, epoch, clip=1.0):
         target = batch[1].to(device)
 
         # forward pass
-        optimizer.zero_grad()
+        #we do not need optimizer.zero_grad() as we are using deepspeed and the model_engine takes care of the zeroing step
         output = model(source, target[:, :-1])
 
         # calculate the loss
@@ -60,13 +67,13 @@ def train_fn(model, dataloader, optimizer, criterion, device, epoch, clip=1.0):
         steps += 1
 
         output = output.argmax(dim=-1)
-        # backward pass
-        loss.backward()
+        
+        # backward pass in deepspeed
+        model.backward(loss)
         # clip gradients to avoid exploding gradients issue
         nn.utils.clip_grad_norm_(model.parameters(), clip)
-        # update model parameters
-        optimizer.step()
-        # scheduler.step()
+        # update model parameters in deepspeed
+        model.step()
 
         # Log progress
         if steps % 10 == 0:
@@ -96,9 +103,13 @@ def eval_fn(model, dataloader, criterion, device, sp):
         for batch in tk0:
             source = batch[0].to(device)
             target = batch[1].to(device)
+            source_lengths = batch[2].to(device)
+            
 
             # forward pass
-            optimizer.zero_grad()
+            # Perform beam search with fairseq
+            output = generator.generate(src_tokens=source, src_lengths=source_lengths)
+
             output = model(source, target[:, :-1])
 
             # calculate the loss
@@ -132,35 +143,6 @@ def eval_fn(model, dataloader, criterion, device, sp):
     bleu_score = 0  # bleu.compute(predictions=hypotheses, references=references)
 
     return perplexity, bleu_score
-
-
-class NoamOptim(object):
-    """ Optimizer wrapper for learning rate scheduling.
-    """
-
-    def __init__(self, optimizer, d_model, factor, n_warmup_steps):
-        self.optimizer = optimizer
-        self.d_model = d_model
-        self.factor = factor
-        self.n_warmup_steps = n_warmup_steps
-        self.n_steps = 0
-
-    def zero_grad(self):
-        self.optimizer.zero_grad()
-
-    def step(self):
-        self.n_steps += 1
-        lr = self.get_lr()
-        for p in self.optimizer.param_groups:
-            p['lr'] = lr
-        self.optimizer.step()
-
-    def get_lr(self):
-        return self.factor * (
-                self.d_model ** (-0.5)
-                * min(self.n_steps ** (-0.5), self.n_steps * self.n_warmup_steps ** (-1.5))
-        )
-
 
 def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
                       save_path, save_interval, optimizer, criterion, sp, es_patience=5, avg_n_weights=5,
@@ -199,6 +181,12 @@ def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
 
 
 if __name__ == '__main__':
+
+    # set cuda configuration for experiments
+    #os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'garbage_collection_threshold:0.6'
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+
+    
     corpus_path = '../corpus/df_encoded.pkl'
     print(f"Loading corpus from: {corpus_path} ...")
     df_corpus = pd.read_pickle(corpus_path)
@@ -234,14 +222,36 @@ if __name__ == '__main__':
         device=device
     ).to(device)
 
+    # Initialize DeepSpeed
+    model_engine, optimizer, _, _ = deepspeed.initialize(
+        model=model,
+        model_parameters=model.parameters(),
+        config=DS_FILE_PATH
+    )
+
     num_epochs = 1
     save_path = 'models'
     save_interval = None
-    optimizer = NoamOptim(
-        torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9),
-        model.d_model, 2, 4000
-    )
     criterion = nn.CrossEntropyLoss(ignore_index=sb_vocab_dict['<mask>'])
+
+    # Parameters for beam search in Validation
+    beam_size = 4
+    len_penalty = 0.6
+    max_len_a = 1.0
+    max_len_b = 50
+
+    beam_dictionary = Dictionary()
+    for token in sb_vocab:
+        beam_dictionary.add_symbol(token)
+    beam_dictionary.finalize()
+    
+    generator = SequenceGenerator([model_engine], 
+                                    beam_dictionary, 
+                                    beam_size=beam_size,
+                                    len_penalty=len_penalty,
+                                    max_len_a=max_len_a,
+                                    max_len_b=max_len_b)
+
 
     print_training_parameters(
         num_epochs=10,
