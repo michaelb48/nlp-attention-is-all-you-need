@@ -23,7 +23,7 @@ class Transformer(nn.Module):
             d_query_key_head: int = 64,
             d_value_head: int = 64,
             t_dropout: float = 0.1,
-            t_dot_prodcut: bool = True
+            t_dot_product: bool = True
     ):
 
         super().__init__()
@@ -47,7 +47,7 @@ class Transformer(nn.Module):
             d_query_key_head=d_query_key_head,
             d_value_head=d_value_head,
             t_dropout=t_dropout,
-            t_dot_prodcut=t_dot_prodcut
+            t_dot_product=t_dot_product
         )
 
         self.decoder = Decoder(
@@ -58,7 +58,7 @@ class Transformer(nn.Module):
             d_query_key_head=d_query_key_head,
             d_value_head=d_value_head,
             t_dropout=t_dropout,
-            t_dot_prodcut=t_dot_prodcut
+            t_dot_product=t_dot_product
         )
 
         # define the linear layer for the projection before softmax; this layer shares the weights with the embedding layers

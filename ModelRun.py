@@ -171,10 +171,10 @@ def train_transformer(model, train_dataloader, val_dataloader, vocab_size, num_e
 
 if __name__ == '__main__':
 
-    df_corpus = pd.read_pickle('corpus/corpus_normalized_encoded.pkl')
+    df_corpus = pd.read_pickle('../corpus/df_encoded.pkl')
 
     vocab = spm.SentencePieceProcessor()
-    vocab.load('bpe/corpus_bpe_model.model')
+    vocab.load('../bpe/bpe_model.model')
     vocab_size = vocab.get_piece_size()
     sb_vocab = [vocab.id_to_piece(i) for i in range(vocab_size)]
     sb_vocab_dict = {sb_vocab[i]: i for i in range(vocab_size)}
@@ -195,6 +195,6 @@ if __name__ == '__main__':
         device='cuda'
     )
 
-    train_transformer(model,train_dataloader,val_dataloader,vocab_size,1,'/model',100, vocab)
+    train_transformer(model,train_dataloader,val_dataloader,vocab_size,1,'../model',100, vocab)
 
 

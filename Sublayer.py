@@ -98,24 +98,26 @@ class MHAttentionSublayer(nn.Module):
                  t_heads: int,
                  d_query_key_head: int,
                  d_value_head: int,
-                 t_dropout: float):
+                 t_dropout: float,
+                t_dot_product: bool
+                ):
         super().__init__()
         self.multi_headed_attention = MHAttention(d_model=d_model,
                                                   t_heads=t_heads,
                                                   d_query_key_head=d_query_key_head,
-                                                  d_value_head=d_value_head)
+                                                  d_value_head=d_value_head,
+                                                 t_dot_product=t_dot_product)
 
         self.dropout = nn.Dropout(t_dropout)
 
         self.normalization = nn.LayerNorm(d_model)
 
-    def forward(self, query, key, value, seq_mask, t_dot_product):
+    def forward(self, query, key, value, seq_mask):
         # store the original tensor for the residual connection; as none of the forward operations happen inplace we can simply assign
         residual = query.detach().clone()
 
         # let the input token pass forward through the operation
-        op_result = self.multi_headed_attention(query=query, key=key, value=value, seq_mask=seq_mask,
-                                                t_dot_product=t_dot_product)
+        op_result = self.multi_headed_attention(query=query, key=key, value=value, seq_mask=seq_mask)
 
         # apply dropout before adding residual
         op_result = self.dropout(op_result)

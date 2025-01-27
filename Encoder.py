@@ -9,7 +9,7 @@ class EncoderLayer(nn.Module):
                  d_query_key_head: int,
                  d_value_head: int,
                  t_dropout: float,
-                 t_dot_prodcut: str
+                 t_dot_product: bool
                  ):
         super().__init__()
 
@@ -18,7 +18,7 @@ class EncoderLayer(nn.Module):
                                                       d_query_key_head=d_query_key_head,
                                                       d_value_head=d_value_head,
                                                       t_dropout=t_dropout,
-                                                      t_dot_prodcut=t_dot_prodcut)
+                                                      t_dot_product=t_dot_product)
 
         self.feed_forward_sublayer = FeedForwardSublayer(d_model=d_model,
                                                          d_ff_inner=d_ff_inner,
@@ -41,7 +41,7 @@ class Encoder(nn.Module):
                  d_query_key_head: int,
                  d_value_head: int,
                  t_dropout: float,
-                 t_dot_prodcut: str
+                 t_dot_product: bool
                  ):
         super().__init__()
 
@@ -51,7 +51,7 @@ class Encoder(nn.Module):
                                    d_query_key_head=d_query_key_head,
                                    d_value_head=d_value_head,
                                    t_dropout=t_dropout,
-                                   t_dot_prodcut=t_dot_prodcut) for _ in range(t_enc_layer_num)]
+                                   t_dot_product=t_dot_product) for _ in range(t_enc_layer_num)]
         self.encoder_layer_stack = nn.ModuleList(layer_list)
 
     def forward(self, seq, mask):
