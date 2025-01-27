@@ -46,7 +46,7 @@ def prepare_corpus(corpus_config: Dict = None):
     corpus_data = corpus_config.get('datasets', [])
 
     # check if corpus exists already
-    if os.path.exists(os.path.join(corpus_path,'corpus.txt')) and os.path.exists(os.path.join(corpus_path,'corpus_normalized.txt')):
+    if os.path.exists(os.path.join(corpus_path,'corpus.pickle')) and os.path.exists(os.path.join(corpus_path,'corpus_normalized.txt')):
         normalized_path = os.path.join(corpus_path,'corpus_normalized.txt')
 
         logger.info(f'Normalized corpus exists already at {normalized_path}. Existing file is used instead.')

@@ -191,7 +191,8 @@ if __name__ == '__main__':
 
     model = Transformer(
         n_vocab_len=vocab_size,
-        i_vocab_padding=sb_vocab_dict['<mask>']
+        i_vocab_padding=sb_vocab_dict['<mask>'],
+        device='cuda'
     )
 
     train_transformer(model,train_dataloader,val_dataloader,vocab_size,1,'/model',100,vocab)

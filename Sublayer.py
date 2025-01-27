@@ -2,6 +2,24 @@ import torch.nn as nn
 import math
 import torch
 
+class ScaledDotProductAttention(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    # this code draws heavily from https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html#torch.nn.functional.scaled_dot_product_attention
+    def forward(self, query, key, value, attn_mask=None, scale=None):
+        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+
+        attn = torch.matmul(query, key.transpose(-2, -1))
+        attn = attn * scale_factor
+
+        if attn_mask is not None:
+            attn = attn.masked_fill(attn_mask == 0, float('-inf'))
+
+        attn_weight = torch.softmax(attn, dim=-1)
+
+        return torch.matmul(attn_weight, value)
+
 class MHAttention(nn.Module):
     def __init__(self,
                  d_model: int,
@@ -48,7 +66,7 @@ class MHAttention(nn.Module):
         L, S = query.size(-2), key.size(-2)
 
         scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
-        attn_bias = torch.zeros(L, S, dtype=query.dtype)
+        attn_bias = torch.zeros(L, S, dtype=torch.float64)
 
         if attn_mask is not None:
             attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
