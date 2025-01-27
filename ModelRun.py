@@ -196,11 +196,11 @@ def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
     return model
 
 if __name__ == '__main__':
-    corpus_path = 'corpus/df_encoded.pkl'
+    corpus_path = '../corpus/df_encoded.pkl'
     print(f"Loading corpus from: {corpus_path} ...")
     df_corpus = pd.read_pickle(corpus_path)
 
-    bpe_model_path = 'bpe/bpe_model.model'
+    bpe_model_path = '../bpe/bpe_model.model'
     print(f"Loading BPE model from: {bpe_model_path} ...")
     sp = spm.SentencePieceProcessor()
     sp.load(bpe_model_path)
