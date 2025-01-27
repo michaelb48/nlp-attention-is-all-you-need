@@ -195,6 +195,6 @@ if __name__ == '__main__':
         device='cuda'
     )
 
-    train_transformer(model,train_dataloader,val_dataloader,vocab_size,1,'/model',100,vocab)
+    train_transformer(model,train_dataloader,val_dataloader,vocab_size,1,'/model',100, vocab)
 
 

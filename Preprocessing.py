@@ -25,7 +25,6 @@ def normalize_text(sequence: str):
     text = sequence.replace('\n', ' ')
     return text
 
-
 # this method normalizes each sequence in the src and target language of the corpus
 def normalize_corpus(df_corpus: pd.DataFrame):
     df_normalized = df_corpus.copy(deep=True)
