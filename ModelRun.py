@@ -69,7 +69,7 @@ def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
         # Log progress
         if steps % 100 == 0:
             print(
-                f'Epoch: {epoch}, Batch: {steps}, Loss: {loss.item():.4f}, Learning Rate: {optimizer.get_()[0]:.7f}')
+                f'Batch: {steps}, Loss: {loss.item():.4f}, Learning Rate: {optimizer.get_lr()[0]:.7f}')
 
         tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
@@ -214,7 +214,7 @@ if __name__ == '__main__':
     print("Creating data loaders ...")
     train_dataloader,val_dataloader = create_train_val_dataloaders(
         dataset,
-        batch_size=64,
+        batch_size=32,
         vocab=sb_vocab_dict,
         val_split=0.1
     )
