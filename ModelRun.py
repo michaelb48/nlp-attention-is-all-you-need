@@ -10,8 +10,29 @@ from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
 from torchtext.data.metrics import bleu_score
 
-
-def train_fn(model, dataloader, optimizer, criterion, device, epoch, scheduler, clip=1.0):
+def print_training_parameters(num_epochs, save_path, save_interval, optimizer, criterion):
+    print(f"""
+    Training Parameters:
+    ---------------------
+    Number of Epochs   : {num_epochs}
+    Save Path          : {save_path}
+    Save Interval      : {save_interval}
+    Optimizer          : NoamOptim(
+        optimizer: torch.optim.Adam(
+            lr={optimizer.optimizer.param_groups[0]['lr']},
+            betas={optimizer.optimizer.param_groups[0]['betas']},
+            eps={optimizer.optimizer.param_groups[0]['eps']}
+        ),
+        d_model={optimizer.d_model},
+        warmup_steps={optimizer.n_warmup_steps},
+        factor={optimizer.factor}
+    )
+    Criterion          : nn.CrossEntropyLoss(
+        ignore_index={criterion.ignore_index}
+    )
+    """)
+    
+def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
     model.train()
     total_loss = 0
     steps = 0
@@ -137,9 +158,10 @@ class NoamOptim(object):
         return self.factor * (
             self.d_model ** (-0.5)
             * min(self.n_steps ** (-0.5), self.n_steps * self.n_warmup_steps ** (-1.5))
+        )
 
 def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
-                      save_path, save_interval, optimizer, criterion, es_patience=5, avg_n_weights=5,
+                      save_path, save_interval, optimizer, criterion, sp, es_patience=5, avg_n_weights=5,
                       device='cuda'):
     
     best_bleu4 = float('-inf')
@@ -149,10 +171,11 @@ def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
     
     for epoch in range(0, N_EPOCHS + 1):
         # one epoch training
-        _, train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, CLIP)
+
+        train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, CLIP)
         
         # one epoch validation
-        _, valid_perplexity, valid_bleu4 = eval_fn(model, valid_dataloader, criterion)
+        valid_perplexity, valid_bleu4 = eval_fn(model, valid_dataloader, criterion, device, sp)
         
         print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu4:.4f}')
         
@@ -172,19 +195,23 @@ def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
 
     return model
 
-
 if __name__ == '__main__':
+    corpus_path = 'corpus/df_encoded.pkl'
+    print(f"Loading corpus from: {corpus_path} ...")
+    df_corpus = pd.read_pickle(corpus_path)
 
-    df_corpus = pd.read_pickle('corpus/df_encoded.pkl')
-
+    bpe_model_path = 'bpe/bpe_model.model'
+    print(f"Loading BPE model from: {bpe_model_path} ...")
     sp = spm.SentencePieceProcessor()
-    sp.load('bpe/bpe_model.model')
+    sp.load(bpe_model_path)
     sb_vocab_size = sp.get_piece_size()
     sb_vocab = [sp.id_to_piece(i) for i in range(sb_vocab_size)]
     sb_vocab_dict = {sb_vocab[i]: i for i in range(sb_vocab_size)}
 
+    print("Creating dataset ...")
     dataset = TranslationDataset(df_corpus, sb_vocab)
 
+    print("Creating data loaders ...")
     train_dataloader,val_dataloader = create_train_val_dataloaders(
         dataset,
         batch_size=64,
@@ -195,23 +222,34 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
-
+    print("Initializing model ...")
     model = Transformer(
-        n_vocab_len=vocab_size,
+        n_vocab_len=sb_vocab_size,
         i_vocab_padding=sb_vocab_dict['<mask>']
     ).to(device)
 
     num_epochs = 10
     save_path = 'models'
     save_interval = None
-    optimizer
     optimizer = NoamOptim(
-        optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9),
+        torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9),
         model.d_model, 2, 4000
     )
     criterion = nn.CrossEntropyLoss(ignore_index=sb_vocab_dict['<mask>'])
-    print(f"sb_vocab_dict['<mask>']: {sb_vocab_dict['<mask>']}")
-    #train_transformer(model, train_dataloader, val_dataloader, num_epochs,
-    #                  save_path, save_interval, optimizer, criterion, es_patience=5, avg_n_weights=5,
-    #                  device='cuda')
+    
+    print_training_parameters(
+        num_epochs=10,
+        save_path='models',
+        save_interval=None,
+        optimizer=NoamOptim(
+            torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9),
+            model.d_model, 2, 4000
+        ),
+        criterion=nn.CrossEntropyLoss(ignore_index=sb_vocab_dict['<mask>'])
+    )
+
+    print("Starting training!")
+    train_transformer(model, train_dataloader, val_dataloader, num_epochs,
+                     save_path, save_interval, optimizer, criterion, sp, es_patience=5, avg_n_weights=5,
+                     device='cuda')
 

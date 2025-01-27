@@ -15,13 +15,7 @@ class TranslationDataset(Dataset):
 
     def __getitem__(self, idx):
         # Adding start and end tokens
-<<<<<<< HEAD
         en_tokens = self.en_sentences[idx] + [self.end_token] # sos + sentence + eos
-=======
-        print(self.en_sentences[idx])
-        print(self.de_sentences[idx])
-        en_tokens = [self.start_token] + self.en_sentences[idx] + [self.end_token] # sos + sentence + eos
->>>>>>> d2e4077d736d1c970a88acf6d6436e3c8b9b10d9
         de_tokens = [self.start_token] + self.de_sentences[idx] + [self.end_token] # sos + sentence + eos
 
         return {
@@ -66,7 +60,7 @@ def create_train_val_dataloaders(dataset, batch_size, vocab, val_split=0.1, shuf
     val_length = int(len(dataset) * val_split)
     train_length = len(dataset) - val_length
 
-    print(f"train length: {train_length}, val length: {val_length}")
+    print(f"train size: {train_length},\nval size: {val_length}")
     
     train_dataset, val_dataset = random_split(
         dataset, 
