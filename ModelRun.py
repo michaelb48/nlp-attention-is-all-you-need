@@ -23,7 +23,7 @@ def train_fn(model, dataloader, optimizer, criterion, device, epoch, scheduler, 
 
         # forward pass
         optimizer.zero_grad()
-        output = model(source, target[:, :-1])
+        output, _ = model(source, target[:, :-1])
 
         # calculate the loss
         loss = criterion(
@@ -73,7 +73,7 @@ def eval_fn(model, dataloader, criterion, device, sp):
 
             # forward pass
             optimizer.zero_grad()
-            output = model(source, target[:, :-1])
+            output, _ = model(source, target[:, :-1])
 
             # calculate the loss
             loss = criterion(
@@ -183,7 +183,7 @@ if __name__ == '__main__':
 
     train_dataloader,val_dataloader = create_train_val_dataloaders(
         dataset,
-        batch_size=32,
+        batch_size=16,
         vocab=sb_vocab_dict,
         val_split=0.3
     )

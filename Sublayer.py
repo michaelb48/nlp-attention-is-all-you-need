@@ -1,7 +1,6 @@
 import torch.nn as nn
 import math
 import torch
-import torch.nn.functional as F
 
 class ScaledDotProductAttention(nn.Module):
     def __init__(self):
@@ -44,11 +43,11 @@ class MHAttention(nn.Module):
         self.value_proj = nn.Linear(self.d_model, self.t_heads * self.d_v, bias=False)
 
         # use our scaled-dot-product-attention
-        #if t_dot_product:
-        #    self.scaled_dot_product_attention = ScaledDotProductAttention()
-        #else:
-            #this will be changed to our extension of the paper
-        #    self.scaled_dot_product_attention = ScaledDotProductAttention()
+        if t_dot_product:
+            self.scaled_dot_product_attention = ScaledDotProductAttention()
+        else:
+            # this will be changed to our extension of the paper
+            self.scaled_dot_product_attention = ScaledDotProductAttention()
 
         # use another linear layer to project the concatenation after attention of each head was computed
         self.concat_proj = nn.Linear(self.t_heads * self.d_v, d_model, bias=False)
@@ -79,8 +78,7 @@ class MHAttention(nn.Module):
         values = values.transpose(1, 2)
 
         # pass to the scaled dot product attention
-        attention_values = F.scaled_dot_product_attention(queries, keys, values, seq_mask)
-        #attention_values = self.scaled_dot_product_attention(queries, keys, values, seq_mask)
+        attention_values = self.scaled_dot_product_attention(queries, keys, values, seq_mask)
 
         # Now we need to transpose the heads back like in the lecture:b x n x h x d/h <- b x h x n x d/h
         attention_values = attention_values.transpose(1, 2)
