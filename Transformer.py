@@ -77,39 +77,26 @@ class Transformer(nn.Module):
 
     def get_attention_mask(self, padded_seq: torch.Tensor) -> torch.Tensor:
         # use broadcast to create mask
-        mask = (padded_seq != self.padding).unsqueeze(-2)
-        return mask
+        return (padded_seq != self.padding).unsqueeze(-2)
 
     def get_subsequent_mask(self, padded_seq: torch.Tensor) -> torch.Tensor:
         # use broadcast to create mask
         seq_len = padded_seq.size(-1)
-        decoder_mask = torch.ones(1, seq_len, seq_len)
-        upper_triangle = torch.triu(decoder_mask, diagonal=1)
-        lower_triangle = (upper_triangle == 0)
-        mask = lower_triangle.bool()
-        return mask
+        upper_triangle = torch.triu(torch.ones(1, seq_len, seq_len), diagonal=1)
+        return (upper_triangle == 0).bool()
 
     def forward(self, input_seq_padded, target_seq_padded):
         # create attention masks for relevant tokens
         src_seq_mask = self.get_attention_mask(input_seq_padded)
         target_seq_mask = self.get_attention_mask(target_seq_padded) & self.get_subsequent_mask(target_seq_padded).to(self.device)
 
+        # get embeddings and scale with scaling value and positional encoding
+        src_seq_embedding_position_encoded = self.positional_encoding(self.vocab_embedding(input_seq_padded) * (self.scaling))
+        target_seq_embedding_position_encoded = self.positional_encoding(self.vocab_embedding(target_seq_padded) * (self.scaling))
 
-        # get embeddings and scale with scaling value
-        src_seq_embedding = self.vocab_embedding(input_seq_padded) * (self.scaling)
-        target_seq_embedding= self.vocab_embedding(target_seq_padded) * (self.scaling)
-
-        # add positional embeddings
-        src_seq_embedding_position_encoded = self.positional_encoding(src_seq_embedding)
-        target_seq_embedding_position_encoded = self.positional_encoding(target_seq_embedding)
-
-        # apply dropout
-        src_seq_embedding_position_encoded = self.dropout(src_seq_embedding_position_encoded)
-        target_seq_embedding_position_encoded = self.dropout(target_seq_embedding_position_encoded)
-
-        # compute encoder and decoder output
-        enc_output = self.encoder(src_seq_embedding_position_encoded, src_seq_mask)
-        dec_output = self.decoder(enc_output, src_seq_mask, target_seq_embedding_position_encoded, target_seq_mask)
+        # apply dropout and compute encoder and decoder output
+        enc_output = self.encoder(self.dropout(src_seq_embedding_position_encoded), src_seq_mask)
+        dec_output = self.decoder(enc_output, src_seq_mask, self.dropout(target_seq_embedding_position_encoded), target_seq_mask)
 
         # compute linear projection back to vocab
         return self.linear_to_vocab(dec_output)

@@ -25,11 +25,7 @@ class EncoderLayer(nn.Module):
                                                          t_dropout=t_dropout)
 
     def forward(self, seq, mask):
-        # calculate attended values
-        attn_values = self.attention_sublayer(query=seq, key=seq, value=seq, seq_mask=mask)
-
-        # linear projection with the same matrix identically for all words
-        return self.feed_forward_sublayer(value=attn_values)
+        return self.feed_forward_sublayer(self.attention_sublayer(query=seq, key=seq, value=seq, seq_mask=mask))
 
 
 class Encoder(nn.Module):
