@@ -12,7 +12,25 @@ from torchtext.data.metrics import bleu_score
 from Optimizer import CustomOptim
 from itertools import islice
 import json
+import copy
 
+
+def average_model_weights(state_dicts):
+    """
+    Averages the weights from multiple state_dicts.
+
+    Args:
+        state_dicts: List of state_dict dictionaries
+
+    Returns:
+        Averaged state_dict.
+    """
+    avg_state_dict = copy.deepcopy(state_dicts[0])
+    for key in avg_state_dict.keys():
+        for state_dict in state_dicts[1:]:
+            avg_state_dict[key] += state_dict[key]
+        avg_state_dict[key] /= len(state_dicts)
+    return avg_state_dict
 
 def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
     model.train()
@@ -118,14 +136,12 @@ def eval_fn(model, dataloader, criterion, device, sp):
     return perplexity, bleu_score
 
 
-def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
-                      save_path, save_interval, optimizer, criterion, sp, es_patience=5, avg_n_weights=5,
-                      device='cuda'):
-    
+def train_transformer(model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps, batch_size, last_save_time,
+                      save_path, save_interval, average_model_weight_num, sp, es_patience=5, device='cuda'):
     best_bleu4 = float('-inf')
     patience = 0
-    N_EPOCHS = num_epochs
     CLIP = 1.0
+    global epoch_start
     
     for epoch in range(0, N_EPOCHS + 1):
         # one epoch training
@@ -179,8 +195,8 @@ if __name__ == '__main__':
     warmup_steps_config = config.get('warmup_steps',4000)
     lr_factor_config = config.get('lr_factor',1)
 
-    training_time_in_minutes_config = config.get('training_time_in_minutes', 180)
-    training_steps_per_epoch_config = config.get('training_steps_per_epoch', 20000)
+    num_epochs_config = config.get('num_epochs', 10)
+    total_training_steps_config = config.get('total_training_steps', 100000)
     model_save_path_config = config.get('model_save_path','/models')
     save_interval_in_minutes_config = config.get('save_interval_in_minutes',10)
     average_model_weight_num_config = config.get('average_model_weight_num',5)
@@ -216,8 +232,8 @@ if __name__ == '__main__':
     # INIT EXPERIMENT RUN
     
     # set general training parameters
-    training_time_in_minutes = training_time_in_minutes_config
-    training_steps_per_epoch = training_steps_per_epoch_config
+    num_epochs = num_epochs_config
+    total_training_steps = total_training_steps_config
     model_save_path = model_save_path_config
     save_interval_in_minutes = save_interval_in_minutes_config
     average_model_weight_num = average_model_weight_num_config
@@ -315,18 +331,43 @@ if __name__ == '__main__':
     max_len_a = max_len_a_config
     max_len_b = max_len_b_config
 
-    # START TRAINING
+    # initialize list for averaging of previous state_dict copies
+    prev_state_dicts = []
 
-    # start training
+    
+    # START TRAINING
+    # Training tracking
     batch_start = 0
+    epoch_start = 0
+    start_time = time.time()  # Total training start time
+    last_save_time = start_time  # Time of the last model save
+
+    # List to store previous state_dict copies for averaging
+    prev_state_dicts = []
+    
     while True:
         print(f"Inside while with batch_start = {batch_start}")
         try:
             print("Starting training!")
-            train_transformer(model, train_dataloader, val_dataloader, num_epochs,
-                             save_path, save_interval, optimizer, criterion, sp, es_patience=5, avg_n_weights=5,
-                             device='cuda')
+            dtrain_transformer(model=model,
+                               optimizer=optimizer,
+                               criterion=criterion,
+                               train_dataloader=traindataloader,
+                               val_dataloader=val_dataloader,
+                               num_epochs=num_epochs,
+                               total_training_steps=total_training_steps,
+                               batch_size=batch_size,
+                               last_save_time=last_save_time,
+                               save_path_prefix=model_save_path,
+                               save_interval=save_interval_in_minutes,
+                               average_model_weight_num=average_model_weight_num,
+                               sp=sp,
+                               es_patience=5,
+                               device='cuda'
+                              ):
         except torch.cuda.OutOfMemoryError as e:
             print(f"Skipping to: {batch_start}")
             torch.cuda.empty_cache()
             continue
+        final_model_dict = average_model_weights(prev_state_dicts)
+        return
