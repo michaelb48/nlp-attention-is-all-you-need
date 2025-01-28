@@ -9,6 +9,7 @@ import sentencepiece as spm
 from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
 from torchtext.data.metrics import bleu_score
+from itertools import islice
 
 def print_training_parameters(num_epochs, save_path, save_interval, optimizer, criterion):
     print(f"""
@@ -38,8 +39,12 @@ def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
     steps = 0
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     output = None
+    global batch_start
     
-    for batch in tk0:
+    for batch_idx, batch in enumerate(tk0):
+        if batch_idx < batch_start:
+            print(f"Skipping: {batch_idx}...")
+            continue
 
         source = batch[0].to(device)
         target = batch[1].to(device)
@@ -56,6 +61,7 @@ def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
 
         total_loss += loss.item()
         steps += 1
+        batch_start += 1
 
         output = output.argmax(dim=-1)
         # backward pass
@@ -69,7 +75,7 @@ def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
         # Log progress
         if steps % 100 == 0:
             print(
-                f'Batch: {steps}, Loss: {loss.item():.4f}, Learning Rate: {optimizer.get_lr()[0]:.7f}')
+                f'Batch: {steps}, Loss: {loss.item():.4f}, Learning Rate: {optimizer.get_lr():.7f}')
 
         tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
@@ -249,8 +255,16 @@ if __name__ == '__main__':
         criterion=nn.CrossEntropyLoss(ignore_index=sb_vocab_dict['<mask>'])
     )
 
-    print("Starting training!")
-    train_transformer(model, train_dataloader, val_dataloader, num_epochs,
-                     save_path, save_interval, optimizer, criterion, sp, es_patience=5, avg_n_weights=5,
-                     device='cuda')
+    batch_start = 0
+
+    while True:
+        print(f"Inside while with batch_start = {batch_start}")
+        try:
+            print("Starting training!")
+            train_transformer(model, train_dataloader, val_dataloader, num_epochs,
+                             save_path, save_interval, optimizer, criterion, sp, es_patience=5, avg_n_weights=5,
+                             device='cuda')
+        except torch.cuda.OutOfMemoryError as e:
+            print(f"Skipping to: {batch_start}")
+            continue
 
