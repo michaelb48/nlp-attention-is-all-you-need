@@ -32,9 +32,9 @@ class DecoderLayer(nn.Module):
                                                          d_ff_inner=d_ff_inner,
                                                          t_dropout=t_dropout)
 
-    def forward(self, seq, mask, encoder_output, encoder_mask):
+    def forward(self, seq, seq_mask, encoder_output, encoder_mask):
         # calculate masked attended values
-        masked_attn_values = self.masked_attention_sublayer(query=seq, key=seq, value=seq, seq_mask=mask)
+        masked_attn_values = self.masked_attention_sublayer(query=seq, key=seq, value=seq, seq_mask=seq_mask)
 
         # calculate attention with encoder output
         attn_values = self.attention_sublayer(query=masked_attn_values, key=encoder_output, value=encoder_output,
@@ -66,12 +66,14 @@ class Decoder(nn.Module):
                                    t_dot_product=t_dot_product) for _ in range(t_dec_layer_num)]
         self.decoder_layer_stack = nn.ModuleList(layer_list)
 
-    def forward(self, encoder_output, encoder_mask, seq, mask):
+        self.normalization = nn.LayerNorm(d_model)
+
+    def forward(self, seq, seq_mask, encoder_output, encoder_mask):
         layer_out = seq
 
         # run the sequence through every layer of the encoder with the mask
         for layer in self.decoder_layer_stack:
-            layer_out = layer(layer_out, mask, encoder_output, encoder_mask)
+            layer_out = layer(layer_out, seq_mask, encoder_output, encoder_mask)
 
         # return the encoder output as d_model tensor
-        return layer_out
+        return self.normalization(layer_out)

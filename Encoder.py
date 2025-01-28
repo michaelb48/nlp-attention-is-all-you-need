@@ -23,7 +23,7 @@ class EncoderLayer(nn.Module):
         self.feed_forward_sublayer = FeedForwardSublayer(d_model=d_model,
                                                          d_ff_inner=d_ff_inner,
                                                          t_dropout=t_dropout)
-
+        
     def forward(self, seq, mask):
         return self.feed_forward_sublayer(self.attention_sublayer(query=seq, key=seq, value=seq, seq_mask=mask))
 
@@ -50,6 +50,8 @@ class Encoder(nn.Module):
                                    t_dot_product=t_dot_product) for _ in range(t_enc_layer_num)]
         self.encoder_layer_stack = nn.ModuleList(layer_list)
 
+        self.normalization = nn.LayerNorm(d_model)
+
     def forward(self, seq, mask):
         layer_out = seq
 
@@ -58,4 +60,4 @@ class Encoder(nn.Module):
             layer_out = layer(layer_out, mask)
 
         # return the encoder output as d_model tensor
-        return layer_out
+        return self.normalization(layer_out)
