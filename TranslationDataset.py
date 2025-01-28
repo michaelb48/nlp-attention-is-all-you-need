@@ -5,7 +5,14 @@ class TranslationDataset(Dataset):
     def __init__(self, dataframe, vocab, start_token="<s>", end_token="</s>", pad_token="<mask>"):
         self.en_sentences = dataframe['en'].tolist()
         self.de_sentences = dataframe['de'].tolist()
-        self.vocab = vocab
+        # filter all sequences that could cause memory issues
+        index_to_remove = set()
+        for i in range(len(self.en_sentences)):
+            if len(self.en_sentences[i]) > 4998 or len(self.de_sentences[i]) > 4998:
+                index_to_remove.add(i)
+        # create new lists without the long sequences
+        self.en_sentences = [seq for idx, seq in enumerate(self.en_sentences) if idx not in index_to_remove]
+        self.de_sentences = [seq for idx, seq in enumerate(self.de_sentences) if idx not in index_to_remove]
         self.start_token = start_token
         self.end_token = end_token
         self.pad_token = pad_token
