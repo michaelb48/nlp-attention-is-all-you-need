@@ -19,7 +19,7 @@ def print_training_parameters(num_epochs, save_path, save_interval, optimizer, c
     Number of Epochs   : {num_epochs}
     Save Path          : {save_path}
     Save Interval      : {save_interval}
-    Optimizer          : NoamOptim(
+    Optimizer          : CustomOptim(
         optimizer: torch.optim.Adam(
             lr={optimizer.optimizer.param_groups[0]['lr']},
             betas={optimizer.optimizer.param_groups[0]['betas']},
@@ -27,7 +27,7 @@ def print_training_parameters(num_epochs, save_path, save_interval, optimizer, c
         ),
         d_model={optimizer.d_model},
         warmup_steps={optimizer.n_warmup_steps},
-        factor={optimizer.factor}
+        factor={optimizer.lr_factor}
     )
     Criterion          : nn.CrossEntropyLoss(
         ignore_index={criterion.ignore_index}
@@ -217,8 +217,14 @@ if __name__ == '__main__':
 
     print("Initializing optimizer ...")
     optimizer = CustomOptim(
-        torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9),
-        model.d_model, 2, 4000
+        model,
+        lr=1e-4,
+        beta1 = 0.9,
+        beta2 = 0.98,
+        eps=1e-9,
+        model.d_model,
+        4000, 
+        1
     )
 
     # training parameters
@@ -232,7 +238,6 @@ if __name__ == '__main__':
     len_penalty_alpha = 0.6
     max_len_a = 1.0
     max_len_b = 50
-
 
     print_training_parameters(
         num_epochs=10,
