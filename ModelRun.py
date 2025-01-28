@@ -1,3 +1,4 @@
+import os
 import time
 import pandas as pd
 import numpy as np
@@ -9,14 +10,7 @@ import sentencepiece as spm
 from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
 from torchtext.data.metrics import bleu_score
-import os
-import deepspeed
-import torch.nn.functional as F
-from fairseq.sequence_generator import SequenceGenerator
-from fairseq.data.dictionary import Dictionary
-
-DS_FILE_PATH = 'config/ds_config.json'
-
+from Optimizer import CustomOptim
 
 def print_training_parameters(num_epochs, save_path, save_interval, optimizer, criterion):
     print(f"""
@@ -54,7 +48,7 @@ def train_fn(model, dataloader, optimizer, criterion, device, epoch, clip=1.0):
         target = batch[1].to(device)
 
         # forward pass
-        #we do not need optimizer.zero_grad() as we are using deepspeed and the model_engine takes care of the zeroing step
+        optimizer.zero_grad()
         output = model(source, target[:, :-1])
 
         # calculate the loss
@@ -67,13 +61,13 @@ def train_fn(model, dataloader, optimizer, criterion, device, epoch, clip=1.0):
         steps += 1
 
         output = output.argmax(dim=-1)
-        
-        # backward pass in deepspeed
-        model.backward(loss)
+
+        # backward pass
+        loss.backward()
         # clip gradients to avoid exploding gradients issue
         nn.utils.clip_grad_norm_(model.parameters(), clip)
-        # update model parameters in deepspeed
-        model.step()
+        # update model parameters
+        optimizer.step()
 
         # Log progress
         if steps % 10 == 0:
@@ -103,8 +97,7 @@ def eval_fn(model, dataloader, criterion, device, sp):
         for batch in tk0:
             source = batch[0].to(device)
             target = batch[1].to(device)
-            source_lengths = batch[2].to(device)
-            
+
 
             # forward pass
             # Perform beam search with fairseq
@@ -222,13 +215,13 @@ if __name__ == '__main__':
         device=device
     ).to(device)
 
-    # Initialize DeepSpeed
-    model_engine, optimizer, _, _ = deepspeed.initialize(
-        model=model,
-        model_parameters=model.parameters(),
-        config=DS_FILE_PATH
+    print("Initializing optimizer ...")
+    optimizer = CustomOptim(
+        torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9),
+        model.d_model, 2, 4000
     )
 
+    # training parameters
     num_epochs = 1
     save_path = 'models'
     save_interval = None
@@ -236,28 +229,16 @@ if __name__ == '__main__':
 
     # Parameters for beam search in Validation
     beam_size = 4
-    len_penalty = 0.6
+    len_penalty_alpha = 0.6
     max_len_a = 1.0
     max_len_b = 50
-
-    beam_dictionary = Dictionary()
-    for token in sb_vocab:
-        beam_dictionary.add_symbol(token)
-    beam_dictionary.finalize()
-    
-    generator = SequenceGenerator([model_engine], 
-                                    beam_dictionary, 
-                                    beam_size=beam_size,
-                                    len_penalty=len_penalty,
-                                    max_len_a=max_len_a,
-                                    max_len_b=max_len_b)
 
 
     print_training_parameters(
         num_epochs=10,
         save_path='models',
         save_interval=None,
-        optimizer=NoamOptim(
+        optimizer=CustomOptim(
             torch.optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.98), eps=1e-9),
             model.d_model, 2, 4000
         ),
