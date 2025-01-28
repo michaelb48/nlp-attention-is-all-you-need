@@ -32,6 +32,20 @@ def average_model_weights(state_dicts):
         avg_state_dict[key] /= len(state_dicts)
     return avg_state_dict
 
+def save_checkpoint(model, optimizer, epoch, batch, save_dir):
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    checkpoint_path = os.path.join(save_dir, f'model_epoch_{epoch}.pth')
+    torch.save({
+        'epoch': epoch,
+        'batch': batch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+    }, checkpoint_path)
+    print(f"Checkpoint saved at epoch {epoch} to {checkpoint_path}")
+
+
 def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
     model.train()
     total_loss = 0
@@ -167,13 +181,15 @@ def train_transformer(model, optimizer, criterion, train_dataloader, val_dataloa
                 print(f'Early stopping! Best BLEU4: {best_bleu4:.4f}')
                 break
 
+    # average the models according to the paper
+    
     return model
 
 
 if __name__ == '__main__':
 
     # this is the path to the experiment configuration; set the values in the config file to execute a new experiment
-    EX_CONFIG_PATH = "/config/ex_config.json"
+    EX_CONFIG_PATH = "config/ex_config.json"
 
     # Open and load the JSON file into a dictionary
     with open(EX_CONFIG_PATH, 'r') as file:
@@ -186,7 +202,7 @@ if __name__ == '__main__':
     bpe_model_path_config = config.get('bpe_model_path','/bpe/bpe_model.model')
     
     batch_size_config = config.get('batch_size',16)
-    dataset_value_split_config = onfig.get('dataset_value_split',0.1)
+    dataset_value_split_config = config.get('dataset_value_split',0.1)
 
     lr_config = config.get('lr',1e-4)
     beta1_config = config.get('beta1',0.9)
@@ -222,6 +238,10 @@ if __name__ == '__main__':
     
     t_dropout_config = config.get('t_dropout',0.1)
     t_dot_product_config = config.get('t_dot_product',True)
+    if t_dot_product_config == 1:
+        t_dot_product_config = True
+    else:
+        t_dot_product_config = False
 
     beam_size_config = config.get('beam_size',4)
     len_penalty_alpha_config = config.get('len_penalty_alpha','max_split_size_mb:128')
@@ -331,9 +351,6 @@ if __name__ == '__main__':
     max_len_a = max_len_a_config
     max_len_b = max_len_b_config
 
-    # initialize list for averaging of previous state_dict copies
-    prev_state_dicts = []
-
     
     # START TRAINING
     # Training tracking
@@ -369,7 +386,6 @@ if __name__ == '__main__':
             print(f"Skipping to: {batch_start}")
             torch.cuda.empty_cache()
             continue
-        #final_model_dict = average_model_weights(prev_state_dicts)
 
         end_time = time.time()
 

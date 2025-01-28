@@ -32,3 +32,6 @@ class CustomOptim:
 
         # perform optimizer step
         self.optimizer.step()
+
+    def state_dict(self):
+        self.optimizer.sate_dict()
