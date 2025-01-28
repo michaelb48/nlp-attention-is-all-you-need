@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
 import sentencepiece as spm
 from Transformer import Transformer
@@ -151,25 +150,24 @@ def train_transformer(model, train_dataloader, val_dataloader, num_epochs,
         train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, epoch, CLIP)
 
         # one epoch validation
-        valid_perplexity, valid_bleu4 = eval_fn(model, val_dataloader, criterion, device, sp)
+        #valid_perplexity, valid_bleu4 = eval_fn(model, val_dataloader, criterion, device, sp)
 
-        print(
-            f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu4:.4f}')
+        #print(
+        #    f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu4:.4f}')
 
         # early stopping
-        is_best = valid_bleu4 > best_bleu4
-        if is_best:
-            print(f'BLEU score improved ({best_bleu4:.4f} -> {valid_bleu4:.4f}). Saving Model!')
-            best_bleu4 = valid_bleu4
-            patience = 0
-            torch.save(model.state_dict(), save_path + f'/model_{epoch}.pth')
-        else:
-            patience += 1
-            print(f'Early stopping counter: {patience} out of {es_patience}')
-            if patience == es_patience:
-                print(f'Early stopping! Best BLEU4: {best_bleu4:.4f}')
-                break
-
+        #is_best = valid_bleu4 > best_bleu4
+        #if is_best:
+        #   print(f'BLEU score improved ({best_bleu4:.4f} -> {valid_bleu4:.4f}). Saving Model!')
+        #    best_bleu4 = valid_bleu4
+        #    patience = 0
+        #    torch.save(model.state_dict(), save_path + f'/model_{epoch}.pth')
+        #else:
+        #    patience += 1
+        #    print(f'Early stopping counter: {patience} out of {es_patience}')
+        #   if patience == es_patience:
+        #       print(f'Early stopping! Best BLEU4: {best_bleu4:.4f}')
+        #        break
     return model
 
 
@@ -222,9 +220,9 @@ if __name__ == '__main__':
         beta1 = 0.9,
         beta2 = 0.98,
         eps=1e-9,
-        model.d_model,
-        4000, 
-        1
+        d_model=model.d_model,
+        n_warmup_steps=4000, 
+        lr_factor=1
     )
 
     # training parameters
