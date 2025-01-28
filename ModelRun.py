@@ -349,7 +349,7 @@ if __name__ == '__main__':
         print(f"Inside while with batch_start = {batch_start}")
         try:
             print("Starting training!")
-            dtrain_transformer(model=model,
+            train_transformer(model=model,
                                optimizer=optimizer,
                                criterion=criterion,
                                train_dataloader=traindataloader,
@@ -364,10 +364,20 @@ if __name__ == '__main__':
                                sp=sp,
                                es_patience=5,
                                device='cuda'
-                              ):
+                              )
         except torch.cuda.OutOfMemoryError as e:
             print(f"Skipping to: {batch_start}")
             torch.cuda.empty_cache()
             continue
-        final_model_dict = average_model_weights(prev_state_dicts)
-        return
+        #final_model_dict = average_model_weights(prev_state_dicts)
+
+        end_time = time.time()
+
+        # Calculate elapsed time
+        elapsed_time = end_time - start_time
+        hours = int(elapsed_time // 3600)
+        minutes = int((elapsed_time % 3600) // 60)
+        seconds = int(elapsed_time % 60)
+
+        print(f"The complete training took {hours:02}:{minutes:02}:{seconds:02} (HH:MM:SS).")
+        break
