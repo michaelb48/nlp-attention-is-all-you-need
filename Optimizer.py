@@ -1,65 +1,33 @@
-import numpy as np
+import torch
+from torch.optim import Adam
+from torch.optim.lr_scheduler import LambdaLR
 
-class ScheduledOptim():
-    '''A simple wrapper class for learning rate scheduling'''
 
-    def __init__(self, optimizer, lr_mul, d_model, n_warmup_steps):
-        self._optimizer = optimizer
-        self.lr_mul = lr_mul
+def get_lr_lambda(d_model, n_warmup_steps, lr_factor=1.0):
+    def lr_lambda(n_steps):
+        return lr_factor * ((d_model ** -0.5) * min(n_steps ** -0.5, n_steps * (n_warmup_steps ** -1.5)))
+    return lr_lambda
+
+class CustomOptim:
+    def __init__(self, model, lr=1e-4, beta1=0.9, beta2=0.98, eps = 1e-9, d_model=512, n_warmup_steps=4000, lr_factor=1):
+        self.optimizer = Adam(model.parameters(), lr=lr, betas=(beta1, beta2), eps=eps),
+        self.eps = eps
+        self.lr_factor = lr_factor
         self.d_model = d_model
         self.n_warmup_steps = n_warmup_steps
         self.n_steps = 0
-
-
-    def step_and_update_lr(self):
-        "Step with the inner optimizer"
-        self._update_learning_rate()
-        self._optimizer.step()
-
-
-    def zero_grad(self):
-        "Zero out the gradients with the inner optimizer"
-        self._optimizer.zero_grad()
-
-
-    def _get_lr_scale(self):
-        d_model = self.d_model
-        n_steps, n_warmup_steps = self.n_steps, self.n_warmup_steps
-        return (d_model ** -0.5) * min(n_steps ** (-0.5), n_steps * n_warmup_steps ** (-1.5))
-
-
-    def _update_learning_rate(self):
-        ''' Learning rate scheduling per step '''
-
-        self.n_steps += 1
-        lr = self.lr_mul * self._get_lr_scale()
-
-        for param_group in self._optimizer.param_groups:
-            param_group['lr'] = lr
-
-
-
-class NoamOptim(object):
-    """ Optimizer wrapper for learning rate scheduling."""
-    def __init__(self, optimizer, d_model, factor, n_warmup_steps):
-        self.optimizer = optimizer
-        self.d_model = d_model
-        self.factor = factor
-        self.n_warmup_steps = n_warmup_steps
-        self.n_steps = 0
+        self.scheduler = LambdaLR(self.optimizer, lr_lambda=get_lr_lambda(self.d_model, self.n_warmup_steps, self.lr_factor))
 
     def zero_grad(self):
         self.optimizer.zero_grad()
 
     def step(self):
+        # increase step counter
         self.n_steps += 1
-        lr = self.get_lr()
-        for p in self.optimizer.param_groups:
-            p['lr'] = lr
+
+        # adpat learning rate
+        self.scheduler.step()
+
+        # perform optimizer step
         self.optimizer.step()
 
-    def get_lr(self):
-        return self.factor * (
-                self.d_model ** (-0.5)
-                * min(self.n_steps ** (-0.5), self.n_steps * self.n_warmup_steps ** (-1.5))
-        )
