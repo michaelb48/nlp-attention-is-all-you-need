@@ -96,7 +96,7 @@ class Transformer(nn.Module):
 
         # apply dropout and compute encoder and decoder output
         enc_output = self.encoder(self.dropout(src_seq_embedding_position_encoded), src_seq_mask)
-        dec_output = self.decoder(enc_output, src_seq_mask, self.dropout(target_seq_embedding_position_encoded), target_seq_mask)
+        dec_output = self.decoder(self.dropout(target_seq_embedding_position_encoded), target_seq_mask, enc_output, src_seq_mask)
 
         # compute linear projection back to vocab
         return self.linear_to_vocab(dec_output)
