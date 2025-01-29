@@ -49,7 +49,7 @@ def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip,
 
         # forward pass
         optimizer.zero_grad()
-        output = model(source, target[:, :-1])
+        output,_ = model(source, target[:, :-1])
 
         # calculate the loss
         loss = criterion(
@@ -87,7 +87,7 @@ def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip,
 
         tk0.set_postfix(loss=total_loss / step)
     tk0.close()
-    perplexity = np.exp(total_loss / len(dataloader))
+    perplexity = np.exp(total_loss / step)
 
     return perplexity
 
@@ -102,15 +102,15 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
 
     in_eval = True
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
-    
+    total_steps = int(max_train_loop_steps*0.3)
     with torch.no_grad():
-        for batch in islice(tk0, 0, int(max_train_loop_steps*0.3)):
+        for batch in islice(tk0, 0, total_steps):
             source = batch[0].to(device)
             target = batch[1].to(device)
 
             # forward pass
             optimizer.zero_grad()
-            output = model(source, target[:, :-1])
+            output,_ = model(source, target[:, :-1])
             #translation = model.translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b)
 
             # calculate the loss
@@ -125,8 +125,8 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
             target = target[:, 1:]
 
             # converting the ids to tokens for bleu score
-            target_tokens = sp.encode_as_pieces(sp.decode(target[0].cpu().tolist()))
-            translation_tokens = sp.encode_as_pieces(sp.decode(output[0].cpu().tolist()))
+            target_tokens = sp.encode_as_pieces(sp.decode(target.cpu().tolist()))
+            translation_tokens = sp.encode_as_pieces(sp.decode(output.cpu().tolist()))
             
             print("Expected Output:", target_tokens)
             print("Predicted Output:", translation_tokens)
@@ -136,7 +136,7 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
             
             tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
-    perplexity = np.exp(total_loss / len(dataloader))
+    perplexity = np.exp(total_loss / steps)
     references = [[[item[0] for item in references]]]
     hypotheses = [hypotheses]
     # Compute the BLEU score
