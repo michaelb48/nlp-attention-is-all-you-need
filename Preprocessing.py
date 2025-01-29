@@ -4,6 +4,7 @@ import json
 import os
 import sentencepiece as spm
 import logging
+import re
 
 
 # get configuration for the preprocessing of the corpus and embeddings
@@ -179,5 +180,39 @@ def run_pre_processing(corpus_config: Dict = None, bpe_model_config: Dict = None
 
     logger.info('Preprocessing was successful.')
 
+def extract_sentences(sgm_file):
+    logger.info(f'Extract sentences from {sgm_file}')
+    
+    with open(sgm_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Regex to capture segment IDs and their text content
+    segments = re.findall(r'<seg id="(\d+)">(.*?)</seg>', content, re.DOTALL)
+    
+    # Convert to dictionary with ID as key
+    sentences = [text.strip() for seg_id, text in segments]
+    
+    return sentences
+    
+def run_test_preprocessing():
+    logger.info('Process the test corpus.')
+
+    en_sentences = extract_sentences("../corpus/test/newstest2013-src.en.sgm")
+    de_sentences = extract_sentences("../corpus/test/newstest2013-src.de.sgm")
+    
+    df = pd.DataFrame({
+        "en": en_sentences,
+        "de": de_sentences
+    })
+
+    sp = spm.SentencePieceProcessor()
+    sp.load("../bpe/bpe_model.model")
+    
+    df_test_encoded = encode_dataframe(sp, df)
+    print(df_test_encoded)
+    df_test_encoded.to_pickle("../corpus/df_test_encoded.pkl")
+    
+
 if __name__ == '__main__':
     run_pre_processing()
+    run_test_preprocessing()
