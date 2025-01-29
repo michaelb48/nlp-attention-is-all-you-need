@@ -32,6 +32,7 @@ class Transformer(nn.Module):
 
         self.d_model = d_model
         self.padding = i_vocab_padding
+        self.not_alibi = t_dot_product
 
         # define embedding layer and positional encoding for encoder and decoder; according to the paper the embedding layer weights are shared
         self.vocab_embedding = nn.Embedding(num_embeddings=n_vocab_len, embedding_dim=d_model,
@@ -91,8 +92,12 @@ class Transformer(nn.Module):
         target_seq_mask = self.get_attention_mask(target_seq_padded) & self.get_subsequent_mask(target_seq_padded).to(self.device)
 
         # get embeddings and scale with scaling value and positional encoding
-        src_seq_embedding_position_encoded = self.positional_encoding(self.vocab_embedding(input_seq_padded) * (self.scaling))
-        target_seq_embedding_position_encoded = self.positional_encoding(self.vocab_embedding(target_seq_padded) * (self.scaling))
+        if self.not_alibi:
+            src_seq_embedding_position_encoded = self.positional_encoding(self.vocab_embedding(input_seq_padded) * (self.scaling))
+            target_seq_embedding_position_encoded = self.positional_encoding(self.vocab_embedding(target_seq_padded) * (self.scaling))
+        else:
+            src_seq_embedding_position_encoded = self.vocab_embedding(input_seq_padded) * (self.scaling)
+            target_seq_embedding_position_encoded = self.vocab_embedding(target_seq_padded) * (self.scaling)
 
         # apply dropout and compute encoder and decoder output
         enc_output = self.encoder(self.dropout(src_seq_embedding_position_encoded), src_seq_mask)

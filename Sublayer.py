@@ -10,6 +10,7 @@ class ScaledDotProductAttention(nn.Module):
     def forward(self, query, key, value, attn_mask=None, scale=None):
         scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
 
+        # dim: batch x head x len x d_k
         attn = torch.matmul(query, key.transpose(-2, -1)) * scale_factor
 
         if attn_mask is not None:
@@ -43,8 +44,7 @@ class MHAttention(nn.Module):
         if t_dot_product:
             self.scaled_dot_product_attention = ScaledDotProductAttention()
         else:
-            #this will be changed to our extension of the paper
-            self.scaled_dot_product_attention = ScaledDotProductAttention()
+            self.scaled_dot_product_attention = # Alibi class goes here
 
         # use another linear layer to project the concatenation after attention of each head was computed
         self.concat_proj = nn.Linear(self.t_heads * self.d_v, d_model, bias=False)

@@ -16,7 +16,7 @@ from torchtext.data.metrics import bleu_score
 from utils import set_seed, ensure_directory_exists, save_checkpoint
 
 # this is the path to the experiment configuration; set the values in the config file to execute a new experiment
-CONFIG_FILE = "ex_config-1"
+CONFIG_FILE = "ex_config-1-extension"
 CONFIG_PATH = "config"
 
 def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,results,epoch,max_train_loop_steps):
