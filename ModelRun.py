@@ -8,10 +8,11 @@ from tqdm import tqdm
 import sentencepiece as spm
 from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
-from torchtext.data.metrics import bleu_score
+#from torchtext.data.metrics import bleu_score
 from Optimizer import CustomOptim
 from itertools import islice
 import json
+import csv
 import copy
 
 
@@ -32,33 +33,43 @@ def average_model_weights(state_dicts):
         avg_state_dict[key] /= len(state_dicts)
     return avg_state_dict
 
-def save_checkpoint(model, optimizer, epoch, batch, save_dir):
+def save_checkpoint(model, optimizer, epoch, save_dir,step=None):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    
-    checkpoint_path = os.path.join(save_dir, f'model_epoch_{epoch}.pth')
+
+    if step is not None:
+        checkpoint_path = os.path.join(save_dir, f'model_epoch_{epoch}_step_{step}.pth')
+    else:
+        checkpoint_path = os.path.join(save_dir, f'model_epoch_{epoch}.pth')
     torch.save({
         'epoch': epoch,
-        'batch': batch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
     }, checkpoint_path)
     print(f"Checkpoint saved at epoch {epoch} to {checkpoint_path}")
 
-
-def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
+def train_fn(model, dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,results,epoch,max_train_loop_steps):
     model.train()
     total_loss = 0
-    steps = 0
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     output = None
+            
     global batch_start
-    
-    for batch_idx, batch in enumerate(tk0):
-        if batch_idx < batch_start:
-            print(f"Skipping: {batch_idx}...")
-            continue
 
+    last_save_time = time.time()
+    
+    # caculate how many batches are left in this epoch
+    step = batch_start // max_train_loop_steps
+    for batch_idx, batch in enumerate(islice(tk0, batch_start, None)):
+
+        # in case the loop gets restarted we have to prematurely stop the training loop
+        if step >= max_train_loop_steps:
+            break
+
+        # in case we reach the end point before the entire epoch training is completed
+        if batch_start >= total_training_steps:
+            break
+        
         source = batch[0].to(device)
         target = batch[1].to(device)
 
@@ -73,24 +84,34 @@ def train_fn(model, dataloader, optimizer, criterion, device, clip=1.0):
         )
 
         total_loss += loss.item()
-        steps += 1
         batch_start += 1
+        step += 1
 
         output = output.argmax(dim=-1)
+        
         # backward pass
         loss.backward()
         # clip gradients to avoid exploding gradients issue
         nn.utils.clip_grad_norm_(model.parameters(), clip)
+        
         # update model parameters
         optimizer.step()
-        #scheduler.step()
 
-        # Log progress
-        if steps % 100 == 0:
+        # Save progress for plotting
+        if step % 100 == 0:
             print(
-                f'Batch: {steps}, Loss: {loss.item():.4f}, Learning Rate: {optimizer.get_lr():.7f}')
+                f'Batch: {step+1}, Loss: {loss.item():.4f}, Learning Rate: {optimizer.get_lr():.7f}')
+            # open writer to training results
+            with open(results, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([epoch, step, loss.item(), optimizer.get_lr()])
+            
+        # Save model every interval
+        if time.time() - last_save_time >= save_interval_in_minutes * 60:
+            save_checkpoint(model,optimizer,epoch,save_path_prefix,step)
+            last_save_time = time.time()
 
-        tk0.set_postfix(loss=total_loss / steps)
+        tk0.set_postfix(loss=total_loss / step)
     tk0.close()
     perplexity = np.exp(total_loss / len(dataloader))
 
@@ -150,39 +171,42 @@ def eval_fn(model, dataloader, criterion, device, sp):
     return perplexity, bleu_score
 
 
-def train_transformer(model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps, batch_size, last_save_time,
-                      save_path, save_interval, average_model_weight_num, sp, es_patience=5, device='cuda'):
-    best_bleu4 = float('-inf')
+def train_transformer(model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps,
+                      save_path_prefix, save_interval_in_minutes, results, average_model_weight_num, sp, es_patience=5, device='cuda'):
+    
+    global best_bleu
     patience = 0
-    CLIP = 1.0
+    clip = 1.0
+    max_train_loop_steps = total_training_steps // num_epochs
+    
     global epoch_start
     
-    for epoch in range(0, N_EPOCHS + 1):
-        # one epoch training
+    for epoch in range(epoch_start, num_epochs+1):
 
-        train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, CLIP)
+        # one epoch training
+        train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,os.path.join(results,"train_results.csv"),epoch,max_train_loop_steps)
         
         # one epoch validation
-        valid_perplexity, valid_bleu4 = eval_fn(model, val_dataloader, criterion, device, sp)
+        #valid_perplexity, valid_bleu = eval_fn(model, val_dataloader, criterion, device, sp)
         
-        print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu4:.4f}')
-        
+        #print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu:.4f}')
+        #with open(os.path.join(results, "validation_results.csv"), mode='a', newline='') as file:
+        #    writer = csv.writer(file)
+        #    writer.writerow([epoch, train_perplexity,valid_perplexity, valid_bleu])
+        #
         # early stopping
-        is_best = valid_bleu4 > best_bleu4
-        if is_best:
-            print(f'BLEU score improved ({best_bleu4:.4f} -> {valid_bleu4:.4f}). Saving Model!')
-            best_bleu4 = valid_bleu4
-            patience = 0
-            torch.save(model.state_dict(), save_path + f'/model_{epoch}.pth')
-        else:
-            patience += 1
-            print(f'Early stopping counter: {patience} out of {es_patience}')
-            if patience == es_patience:
-                print(f'Early stopping! Best BLEU4: {best_bleu4:.4f}')
-                break
-
-    # average the models according to the paper
-    
+        #is_best = valid_bleu > best_bleu
+        #if is_best:
+        #   print(f'BLEU score improved ({best_bleu:.4f} -> {valid_bleu:.4f}). Saving Model!')
+        #    best_bleu4 = valid_bleu4
+        #    patience = 0
+        #    save_checkpoint(model, optimizer, epoch, os.path.join(save_dir,"best")):
+        #else:
+        #    patience += 1
+        #    print(f'Early stopping counter: {patience} out of {es_patience}')
+        #    if patience == es_patience:
+        #        print(f'Early stopping! Best BLEU4: {best_bleu:.4f}')
+        #        break    
     return model
 
 
@@ -200,6 +224,7 @@ if __name__ == '__main__':
     
     corpus_path_config = config.get('corpus_path','/corpus/df_encoded.pkl')
     bpe_model_path_config = config.get('bpe_model_path','/bpe/bpe_model.model')
+    results_path_config = config.get('results','results')
     
     batch_size_config = config.get('batch_size',16)
     dataset_value_split_config = config.get('dataset_value_split',0.1)
@@ -255,6 +280,7 @@ if __name__ == '__main__':
     num_epochs = num_epochs_config
     total_training_steps = total_training_steps_config
     model_save_path = model_save_path_config
+    results_save_path = results_path_config
     save_interval_in_minutes = save_interval_in_minutes_config
     average_model_weight_num = average_model_weight_num_config
     
@@ -351,16 +377,26 @@ if __name__ == '__main__':
     max_len_a = max_len_a_config
     max_len_b = max_len_b_config
 
+
+    # create results file for training and validation to ease plotting
+    train_results_path = os.path.join(results_save_path, "train_results.csv")
+    validation_results_path = os.path.join(results_save_path, "validation_results.csv")
+
+    # create the files with headers
+    with open(train_results_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Epoch", "Step", "Loss", "Learning Rate"])
+    with open(validation_results_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Epoch","TrainPerplexity", "ValidPerplexity", "Bleu"])
+
     
     # START TRAINING
     # Training tracking
     batch_start = 0
     epoch_start = 0
+    best_bleu = float('-inf')
     start_time = time.time()  # Total training start time
-    last_save_time = start_time  # Time of the last model save
-
-    # List to store previous state_dict copies for averaging
-    prev_state_dicts = []
     
     while True:
         print(f"Inside while with batch_start = {batch_start}")
@@ -369,14 +405,13 @@ if __name__ == '__main__':
             train_transformer(model=model,
                                optimizer=optimizer,
                                criterion=criterion,
-                               train_dataloader=traindataloader,
+                               train_dataloader=train_dataloader,
                                val_dataloader=val_dataloader,
                                num_epochs=num_epochs,
                                total_training_steps=total_training_steps,
-                               batch_size=batch_size,
-                               last_save_time=last_save_time,
                                save_path_prefix=model_save_path,
-                               save_interval=save_interval_in_minutes,
+                               save_interval_in_minutes=save_interval_in_minutes,
+                               results=results_save_path,
                                average_model_weight_num=average_model_weight_num,
                                sp=sp,
                                es_patience=5,
