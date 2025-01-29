@@ -18,20 +18,17 @@ class AlibiScaledDotProductAttention(nn.Module):
 
         # dim: batch x head x len x d_k
         attn = torch.matmul(query, key.transpose(-2, -1)) * scale_factor
-        print(f"attn shape: {attn.shape}")
-        #print(f"query.size(-2): {query.size(-2)}")
-        #print(f"attn.size(-2): {attn.size(-2)}")
+
         query_length = query.size(-2) # len
         key_length = key.size(-2) # d_k
         query_indices = torch.arange(query_length).to(query.device)
         key_indices = torch.arange(key_length).to(query.device)
         dis_matrix = query_indices[:, None] - key_indices[None, :]
-        print(f"dis_matrix: {dis_matrix}")
+
         alibi_bias = dis_matrix * self.slopes[:, None, None]
-        print(f"alibi bias before: {alibi_bias.shape}")
+
         alibi_bias = alibi_bias.unsqueeze(0)
-        print(f"alibi bias after: {alibi_bias.shape}")
-        #print(f"alibi bias shape: {alibi_bias.shape}")
+
         attn = attn + alibi_bias # Adding alibi bias to QK
         
         if attn_mask is not None:
