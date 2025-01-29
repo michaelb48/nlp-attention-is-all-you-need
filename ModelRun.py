@@ -28,14 +28,13 @@ def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip,
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     output = None
 
-    print(f"The length of the train data_loader is {len(dataloader)}")
     global batch_start
 
     last_save_time = time.time()
     
     # caculate how many batches are left in this epoch
-    step = batch_start // max_train_loop_steps
-    for batch_idx, batch in enumerate(islice(tk0, batch_start, None)):
+    step = batch_start % max_train_loop_steps
+    for batch_idx, batch in enumerate(islice(tk0, step, max_train_loop_steps)):
 
         # in case the loop gets restarted we have to prematurely stop the training loop
         if step >= max_train_loop_steps:
@@ -104,7 +103,7 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     
     with torch.no_grad():
-        for batch in tk0:
+        for batch in islice(tk0, 0, int(max_train_loop_steps*0.3)):
             source = batch[0].to(device)
             target = batch[1].to(device)
 
@@ -288,8 +287,7 @@ if __name__ == '__main__':
         dataset,
         batch_size=batch_size_config,
         vocab=sb_vocab_dict,
-        val_split=dataset_value_split_config,
-        total_training_steps=total_training_steps
+        val_split=dataset_value_split_config
     )
     
     # set the device for experiment

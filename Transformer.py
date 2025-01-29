@@ -103,9 +103,25 @@ class Transformer(nn.Module):
 
     # Method is necessary for fairseq beam search
     def translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b):
+        # create attention masks for relevant tokens
+        src_seq_mask = self.get_attention_mask(source)
+        # get embeddings and scale with scaling value and positional encoding
+        src_seq_embedding_position_encoded = self.positional_encoding(self.vocab_embedding(source) * (self.scaling))
+        # apply dropout and compute encoder and decoder output
+        enc_output = self.encoder(self.dropout(src_seq_embedding_position_encoded), src_seq_mask)
 
         
-        return torch.argmax(self.forward(src_seq, src_seq), dim=-1)
+        
+        # 1.1) Build encoder attention mask
+        src_seq_mask = model.get_attention_mask(src_seq_padded).to(device)
+
+        # 1.2) Prepare encoder embeddings
+        src_embed = model.vocab_embedding(src_seq_padded) * model.scaling
+        src_embed = model.positional_encoding(src_embed)
+        src_embed = model.dropout(src_embed)
+
+        # 1.3) Run encoder
+        enc_output = model.encoder(src_embed, src_seq_mask)
 
 
 
