@@ -8,13 +8,20 @@ from tqdm import tqdm
 import sentencepiece as spm
 from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
-#from torchtext.data.metrics import bleu_score
 from Optimizer import CustomOptim
 from itertools import islice
 import json
 import csv
 import copy
+from torchtext.data.metrics import bleu_score
 
+# this is the path to the experiment configuration; set the values in the config file to execute a new experiment
+EX_CONFIG_PATH = "config/ex_config-1.json"
+
+def ensure_directory_exists(path:str):
+    directory = os.path.dirname(os.path.abspath(path))  # Convert to absolute path
+    if directory and not os.path.exists(directory):
+        os.makedirs(directory)
 
 def average_model_weights(state_dicts):
     """
@@ -125,9 +132,6 @@ def eval_fn(model, dataloader, criterion, device, sp):
     hypotheses = []
     references = []
 
-    # Load the BLEU metric
-    # bleu = load_metric("bleu")
-
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     with torch.no_grad():
         for batch in tk0:
@@ -163,16 +167,14 @@ def eval_fn(model, dataloader, criterion, device, sp):
     perplexity = np.exp(total_loss / len(dataloader))
     references = [[[item[0] for item in references]]]
     hypotheses = [hypotheses]
-    # print(f"hypotheses: {hypotheses}")
-    # print(f"references: {references}")
     # Compute the BLEU score
-    bleu_score = 0 # bleu.compute(predictions=hypotheses, references=references)
+    bleu_score = bleu_score(candidate_corpus=hypotheses, references_corpus=references)
 
     return perplexity, bleu_score
 
 
 def train_transformer(model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps,
-                      save_path_prefix, save_interval_in_minutes, results, average_model_weight_num, sp, es_patience=5, device='cuda'):
+                      save_path_prefix, save_interval_in_minutes, results_save_path, average_model_weight_num, sp, es_patience=5, device='cuda'):
     
     global best_bleu
     patience = 0
@@ -184,7 +186,7 @@ def train_transformer(model, optimizer, criterion, train_dataloader, val_dataloa
     for epoch in range(epoch_start, num_epochs+1):
 
         # one epoch training
-        train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,os.path.join(results,"train_results.csv"),epoch,max_train_loop_steps)
+        train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,os.path.join(results_save_path,"train_results.csv"),epoch,max_train_loop_steps)
         
         # one epoch validation
         #valid_perplexity, valid_bleu = eval_fn(model, val_dataloader, criterion, device, sp)
@@ -211,10 +213,6 @@ def train_transformer(model, optimizer, criterion, train_dataloader, val_dataloa
 
 
 if __name__ == '__main__':
-
-    # this is the path to the experiment configuration; set the values in the config file to execute a new experiment
-    EX_CONFIG_PATH = "config/ex_config.json"
-
     # Open and load the JSON file into a dictionary
     with open(EX_CONFIG_PATH, 'r') as file:
         config = json.load(file)
@@ -247,7 +245,6 @@ if __name__ == '__main__':
     max_len_a_config = config.get('max_len_a',1)
     max_len_b_config = config.get('max_len_b',50)
 
-    
     d_model_config = config.get('d_model_config',512)
     
     d_dec_ff_inner_config = config.get('d_dec_ff_inner',2048)
@@ -267,6 +264,7 @@ if __name__ == '__main__':
         t_dot_product_config = True
     else:
         t_dot_product_config = False
+    label_smoothing_config = config.get('label_smoothing',0.1)
 
     beam_size_config = config.get('beam_size',4)
     len_penalty_alpha_config = config.get('len_penalty_alpha','max_split_size_mb:128')
@@ -369,7 +367,7 @@ if __name__ == '__main__':
     )
 
     # initialize criterion (loss function)
-    criterion = nn.CrossEntropyLoss(ignore_index=sb_vocab_dict['<mask>'])
+    criterion = nn.CrossEntropyLoss(ignore_index=sb_vocab_dict['<mask>'],label_smoothing=label_smoothing_config)
 
     # initialize beam search values
     beam_size = beam_size_config
@@ -377,7 +375,10 @@ if __name__ == '__main__':
     max_len_a = max_len_a_config
     max_len_b = max_len_b_config
 
-
+    # make sure the directories for storing the models and results exist
+    ensure_directory_exists(results_save_path)
+    ensure_directory_exists(model_save_path)
+                            
     # create results file for training and validation to ease plotting
     train_results_path = os.path.join(results_save_path, "train_results.csv")
     validation_results_path = os.path.join(results_save_path, "validation_results.csv")
@@ -411,7 +412,7 @@ if __name__ == '__main__':
                                total_training_steps=total_training_steps,
                                save_path_prefix=model_save_path,
                                save_interval_in_minutes=save_interval_in_minutes,
-                               results=results_save_path,
+                               results_save_path=results_save_path,
                                average_model_weight_num=average_model_weight_num,
                                sp=sp,
                                es_patience=5,
@@ -431,4 +432,5 @@ if __name__ == '__main__':
         seconds = int(elapsed_time % 60)
 
         print(f"The complete training took {hours:02}:{minutes:02}:{seconds:02} (HH:MM:SS).")
+        save_checkpoint(model, optimizer, 'end', model_save_path)
         break
