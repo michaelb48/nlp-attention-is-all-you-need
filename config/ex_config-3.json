@@ -4,7 +4,7 @@
     "bpe_model_path": "../bpe/bpe_model.model",
     "results_path": "results",
     "batch_size": 16,
-    "dataset_value_split": 0.9,
+    "dataset_value_split": 0.3,
     "lr": 0.0001,
     "beta1": 0.9,
     "beta2": 0.98,
@@ -31,5 +31,7 @@
     "d_query_key_head": 16,
     "d_value_head": 16,
     "t_dropout": 0.1,
-    "t_dot_product": 1
+    "t_dot_product": 1,
+    "total_test_steps":30000,
+    "testcorpus_path": "../test_corpus/df_encoded.pkl",
 }

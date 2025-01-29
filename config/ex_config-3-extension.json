@@ -31,5 +31,7 @@
     "d_query_key_head": 16,
     "d_value_head": 16,
     "t_dropout": 0.1,
-    "t_dot_product": 0
+    "t_dot_product": 0,
+    "total_test_steps":30000,
+    "testcorpus_path": "../test_corpus/df_encoded.pkl",
 }

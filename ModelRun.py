@@ -315,31 +315,14 @@ if __name__ == '__main__':
         t_dropout=t_dropout_config,
         t_dot_product=t_dot_product_config
     ).to(device)
-
-    d_model_config = config.get('d_model_config',512)
-    
-    d_dec_ff_inner_config = config.get('d_dec_ff_inner',2048)
-    t_dec_heads_config = config.get('t_dec_heads',8)
-    t_dec_layer_num_config = config.get('t_dec_layer_num',6)
-    
-    d_enc_ff_inner_config = config.get('d_enc_ff_inner',2048)
-    t_enc_heads_config = config.get('t_enc_heads',8)
-    t_enc_layer_num_config = config.get('t_enc_layer_num',6)
-    
-    d_query_key_head_config = config.get('d_query_key_head',64)
-    d_value_head_config = config.get('d_value_head',64)
-    
-    t_dropout_config = config.get('t_dropout',0.1)
-    t_dot_product_config = config.get('t_dot_product',True)
-
     
     # initialize the optimizer
     print("Initializing optimizer ...")
     optimizer = CustomOptim(
         optimizer=torch.optim.Adam(model.parameters(), lr=lr_config, betas=(beta1_config, beta2_config), eps=eps_config),
         lr=lr_config,
-        beta1 = beta1_config,
-        beta2 = beta2_config,
+        beta1=beta1_config,
+        beta2=beta2_config,
         eps=eps_config,
         d_model=sb_vocab_size,
         n_warmup_steps=warmup_steps_config, 
