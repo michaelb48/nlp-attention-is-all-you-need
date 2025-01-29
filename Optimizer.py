@@ -34,4 +34,4 @@ class CustomOptim:
         self.optimizer.step()
 
     def state_dict(self):
-        self.optimizer.sate_dict()
+        self.optimizer.state_dict()
