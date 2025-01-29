@@ -2,6 +2,43 @@ import torch.nn as nn
 import math
 import torch
 
+class AlibiScaledDotProductAttention(nn.Module):
+    def __init__(self,
+                 t_heads: int
+                 ):
+        super().__init__()
+        self.t_heads = t_heads
+        
+        slopes = torch.tensor([2**(-8 * (i+1) / t_heads) for i in range(t_heads)]) # 1/2^1, 1/2^2, ..., 1/2^(8) for 8 heads
+        self.register_buffer('slopes', slopes)
+            
+    # this code draws heavily from https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html#torch.nn.functional.scaled_dot_product_attention
+    def forward(self, query, key, value, attn_mask=None, scale=None):
+        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+
+        # dim: batch x head x len x d_k
+        attn = torch.matmul(query, key.transpose(-2, -1)) * scale_factor
+        print(f"attn shape: {attn.shape}")
+        #print(f"query.size(-2): {query.size(-2)}")
+        #print(f"attn.size(-2): {attn.size(-2)}")
+        query_length = query.size(-2) # len
+        key_length = key.size(-2) # d_k
+        query_indices = torch.arange(query_length).to(query.device)
+        key_indices = torch.arange(key_length).to(query.device)
+        dis_matrix = query_indices[:, None] - key_indices[None, :]
+        print(f"dis_matrix: {dis_matrix}")
+        alibi_bias = dis_matrix * self.slopes[:, None, None]
+        print(f"alibi bias before: {alibi_bias.shape}")
+        alibi_bias = alibi_bias.unsqueeze(0)
+        print(f"alibi bias after: {alibi_bias.shape}")
+        #print(f"alibi bias shape: {alibi_bias.shape}")
+        attn = attn + alibi_bias # Adding alibi bias to QK
+        
+        if attn_mask is not None:
+            attn = attn.masked_fill(attn_mask == 0, float('-inf'))
+
+        return torch.matmul(torch.softmax(attn, dim=-1), value)
+        
 class ScaledDotProductAttention(nn.Module):
     def __init__(self):
         super().__init__()
@@ -44,7 +81,7 @@ class MHAttention(nn.Module):
         if t_dot_product:
             self.scaled_dot_product_attention = ScaledDotProductAttention()
         else:
-            self.scaled_dot_product_attention = # Alibi class goes here
+            self.scaled_dot_product_attention = AlibiScaledDotProductAttention(self.t_heads)
 
         # use another linear layer to project the concatenation after attention of each head was computed
         self.concat_proj = nn.Linear(self.t_heads * self.d_v, d_model, bias=False)
