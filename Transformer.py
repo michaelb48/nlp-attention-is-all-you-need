@@ -102,5 +102,14 @@ class Transformer(nn.Module):
         return self.linear_to_vocab(dec_output)
 
     # Method is necessary for fairseq beam search
-    def generate(self, src_seq, max_length=50):
+    def translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b):
+
+        
         return torch.argmax(self.forward(src_seq, src_seq), dim=-1)
+
+
+
+
+
+
+

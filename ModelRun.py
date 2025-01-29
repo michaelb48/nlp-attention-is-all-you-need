@@ -12,50 +12,17 @@ from Optimizer import CustomOptim
 from itertools import islice
 import json
 import csv
-import copy
 from torchtext.data.metrics import bleu_score
+from utils import set_seed, ensure_directory_exists, save_checkpoint
 
 # this is the path to the experiment configuration; set the values in the config file to execute a new experiment
-EX_CONFIG_PATH = "config/ex_config-1.json"
+CONFIG_FILE = "ex_config-1"
+CONFIG_PATH = "config"
 
-def ensure_directory_exists(path:str):
-    directory = os.path.dirname(os.path.abspath(path))  # Convert to absolute path
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory)
-
-def average_model_weights(state_dicts):
-    """
-    Averages the weights from multiple state_dicts.
-
-    Args:
-        state_dicts: List of state_dict dictionaries
-
-    Returns:
-        Averaged state_dict.
-    """
-    avg_state_dict = copy.deepcopy(state_dicts[0])
-    for key in avg_state_dict.keys():
-        for state_dict in state_dicts[1:]:
-            avg_state_dict[key] += state_dict[key]
-        avg_state_dict[key] /= len(state_dicts)
-    return avg_state_dict
-
-def save_checkpoint(model, optimizer, epoch, save_dir,step=None):
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-
-    if step is not None:
-        checkpoint_path = os.path.join(save_dir, f'model_epoch_{epoch}_step_{step}.pth')
-    else:
-        checkpoint_path = os.path.join(save_dir, f'model_epoch_{epoch}.pth')
-    torch.save({
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-    }, checkpoint_path)
-    print(f"Checkpoint saved at epoch {epoch} to {checkpoint_path}")
-
-def train_fn(model, dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,results,epoch,max_train_loop_steps):
+def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,results,epoch,max_train_loop_steps):
+    global in_eval
+    if in_eval:
+        return
     model.train()
     total_loss = 0
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
@@ -115,7 +82,7 @@ def train_fn(model, dataloader, optimizer, criterion, device, clip, save_path_pr
             
         # Save model every interval
         if time.time() - last_save_time >= save_interval_in_minutes * 60:
-            save_checkpoint(model,optimizer,epoch,save_path_prefix,step)
+            save_checkpoint(model,optimizer,epoch,save_path_prefix,step,config_file)
             last_save_time = time.time()
 
         tk0.set_postfix(loss=total_loss / step)
@@ -124,15 +91,17 @@ def train_fn(model, dataloader, optimizer, criterion, device, clip, save_path_pr
 
     return perplexity
 
-
-def eval_fn(model, dataloader, criterion, device, sp):
+def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_train_loop_steps,
+                                              beam_size, len_penalty_alpha, max_len_a, max_len_b):
     model.eval()
     total_loss = 0.0
     steps = 0
     hypotheses = []
     references = []
+    global in_eval
 
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
+    
     with torch.no_grad():
         for batch in tk0:
             source = batch[0].to(device)
@@ -141,6 +110,7 @@ def eval_fn(model, dataloader, criterion, device, sp):
             # forward pass
             optimizer.zero_grad()
             output = model(source, target[:, :-1])
+            translation = model.translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b)
 
             # calculate the loss
             loss = criterion(
@@ -158,9 +128,11 @@ def eval_fn(model, dataloader, criterion, device, sp):
             # target_tokens = convert_ids_to_text(target, de_text.vocab, EOS_IDX, UNK_IDX)
             pred_tokens = sp.encode_as_pieces(sp.decode(output[0].cpu().tolist()))
             target_tokens = sp.encode_as_pieces(sp.decode(target[0].cpu().tolist()))
+            translation_tokens = sp.encode_as_pieces(sp.decode(translation.cpu().tolist()))
             print("Expected Output:", target_tokens)
             print("Predicted Output:", pred_tokens)
-            hypotheses += pred_tokens
+            print("Translated Output:", translation_tokens)
+            hypotheses += translation_tokens
             references += [[token] for token in target_tokens if token != '<mask>']
             tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
@@ -170,51 +142,59 @@ def eval_fn(model, dataloader, criterion, device, sp):
     # Compute the BLEU score
     bleu_score = bleu_score(candidate_corpus=hypotheses, references_corpus=references)
 
+    in_eval = False
+    
     return perplexity, bleu_score
 
 
-def train_transformer(model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps,
-                      save_path_prefix, save_interval_in_minutes, results_save_path, average_model_weight_num, sp, es_patience=5, device='cuda'):
+def train_transformer(config_file, model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps,
+                      save_path_prefix, save_interval_in_minutes, results_save_path, average_model_weight_num, sp, es_patience=5, device='cuda',
+                     beam_size, len_penalty_alpha, max_len_a, max_len_b):
     
     global best_bleu
     patience = 0
     clip = 1.0
     max_train_loop_steps = total_training_steps // num_epochs
-    
     global epoch_start
     
     for epoch in range(epoch_start, num_epochs+1):
 
         # one epoch training
-        train_perplexity = train_fn(model, train_dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,os.path.join(results_save_path,"train_results.csv"),epoch,max_train_loop_steps)
+        train_perplexity = train_fn(config_file, model, train_dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,os.path.join(results_save_path,f"{config_file}_train_results.csv"),epoch,max_train_loop_steps)
         
         # one epoch validation
-        #valid_perplexity, valid_bleu = eval_fn(model, val_dataloader, criterion, device, sp)
+        valid_perplexity, valid_bleu = eval_fn(config_file, model, val_dataloader, criterion, device, sp, epoch,max_train_loop_steps,
+                                              beam_size, len_penalty_alpha, max_len_a, max_len_b)
         
-        #print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu:.4f}')
-        #with open(os.path.join(results, "validation_results.csv"), mode='a', newline='') as file:
-        #    writer = csv.writer(file)
-        #    writer.writerow([epoch, train_perplexity,valid_perplexity, valid_bleu])
-        #
-        # early stopping
-        #is_best = valid_bleu > best_bleu
-        #if is_best:
-        #   print(f'BLEU score improved ({best_bleu:.4f} -> {valid_bleu:.4f}). Saving Model!')
-        #    best_bleu4 = valid_bleu4
-        #    patience = 0
-        #    save_checkpoint(model, optimizer, epoch, os.path.join(save_dir,"best")):
-        #else:
-        #    patience += 1
-        #    print(f'Early stopping counter: {patience} out of {es_patience}')
-        #    if patience == es_patience:
-        #        print(f'Early stopping! Best BLEU4: {best_bleu:.4f}')
-        #        break    
+        print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu:.4f}')
+        with open(os.path.join(results, "validation_results.csv"), mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([epoch, train_perplexity,valid_perplexity, valid_bleu])
+        
+        early stopping
+        is_best = valid_bleu > best_bleu
+        if is_best:
+            print(f'BLEU score improved ({best_bleu:.4f} -> {valid_bleu:.4f}). Saving Model!')
+            best_bleu4 = valid_bleu4
+            patience = 0
+            save_checkpoint(model, optimizer, epoch, save_path_prefix, config_file=config_file):
+        else:
+            patience += 1
+            print(f'Early stopping counter: {patience} out of {es_patience}')
+            if patience == es_patience:
+                print(f'Early stopping! Best BLEU4: {best_bleu:.4f}')
+                break
+        epoch_start +=1
     return model
 
 
 if __name__ == '__main__':
+    # set random seed for reproducability
+    set_seet(2630)
+    
     # Open and load the JSON file into a dictionary
-    with open(EX_CONFIG_PATH, 'r') as file:
+    config_path = os.path.join(CONFIG_PATH,f"{CONFIG_FILE}.json")
+    with open(config_path, 'r') as file:
         config = json.load(file)
 
     # VARIABLES FROM CONFIG FILE THAT CONTROL EXPERIMENT RUN
@@ -380,8 +360,8 @@ if __name__ == '__main__':
     ensure_directory_exists(model_save_path)
                             
     # create results file for training and validation to ease plotting
-    train_results_path = os.path.join(results_save_path, "train_results.csv")
-    validation_results_path = os.path.join(results_save_path, "validation_results.csv")
+    train_results_path = os.path.join(results_save_path, f"{CONFIG_FILE}_train_results.csv")
+    validation_results_path = os.path.join(results_save_path, f"{CONFIG_FILE}_validation_results.csv")
 
     # create the files with headers
     with open(train_results_path, mode='w', newline='') as file:
@@ -396,6 +376,7 @@ if __name__ == '__main__':
     # Training tracking
     batch_start = 0
     epoch_start = 0
+    in_eval = False
     best_bleu = float('-inf')
     start_time = time.time()  # Total training start time
     
@@ -403,7 +384,8 @@ if __name__ == '__main__':
         print(f"Inside while with batch_start = {batch_start}")
         try:
             print("Starting training!")
-            train_transformer(model=model,
+            train_transformer(config_file=CONFIG_FILE,
+                               model=model,
                                optimizer=optimizer,
                                criterion=criterion,
                                train_dataloader=train_dataloader,
@@ -416,7 +398,11 @@ if __name__ == '__main__':
                                average_model_weight_num=average_model_weight_num,
                                sp=sp,
                                es_patience=5,
-                               device='cuda'
+                               device='cuda',
+                               beam_size_config=beam_size,
+                               len_penalty_alpha=len_penalty_alpha,
+                               max_len_a=max_len_a,
+                               max_len_b=max_len_b
                               )
         except torch.cuda.OutOfMemoryError as e:
             print(f"Skipping to: {batch_start}")
@@ -432,5 +418,5 @@ if __name__ == '__main__':
         seconds = int(elapsed_time % 60)
 
         print(f"The complete training took {hours:02}:{minutes:02}:{seconds:02} (HH:MM:SS).")
-        save_checkpoint(model, optimizer, 'end', model_save_path)
+        save_checkpoint(model, optimizer, 'end', model_save_path, config_file=CONFIG_FILE)
         break
