@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split, Subset
 
 class TranslationDataset(Dataset):
     def __init__(self, dataframe, vocab, start_token="<s>", end_token="</s>", pad_token="<mask>"):
@@ -54,38 +54,31 @@ def collate_batch(batch, vocab):
     # Return padded tensors and original sequence lengths
     return en_padded, de_padded, torch.tensor([len(seq) for seq in en_sequences]), torch.tensor([len(seq) for seq in de_sequences])
 
-def create_train_val_dataloaders(dataset, batch_size, vocab, val_split=0.1, shuffle=True):
+def create_train_val_dataloaders(dataset, batch_size, vocab, val_split=0.1, total_training_steps=100000, shuffle=True):
     val_length = int(len(dataset) * val_split)
     train_length = len(dataset) - val_length
-    
-    dataset, _ = random_split(
-        dataset, 
-        [train_length, val_length],
-        generator=torch.Generator().manual_seed(42)  # For reproducibility
-    )
-    
-    val_length = int(len(dataset) * val_split)
-    train_length = len(dataset) - val_length
-
-    print(f"train length: {train_length}, val length: {val_length}")
     
     train_dataset, val_dataset = random_split(
         dataset, 
         [train_length, val_length],
         generator=torch.Generator().manual_seed(42)  # For reproducibility
     )
+    
     # Create dataloaders
     train_dataloader = DataLoader(
-        train_dataset,
+        Subset(train_dataset, range(total_training_steps*batch_size)),
         batch_size=batch_size,
         shuffle=shuffle,
         collate_fn=lambda b: collate_batch(b, vocab)
     )
     
     val_dataloader = DataLoader(
-        val_dataset,
+        Subset(val_dataset, range(int(total_training_steps*batch_size*val_split))),
         batch_size=batch_size,
         shuffle=False,  # No need to shuffle validation data
         collate_fn=lambda b: collate_batch(b, vocab)
     )
+
+    print(f"train length: {total_training_steps*batch_size}, val length: {int(total_training_steps*batch_size*val_split)}")
+    print(f"train dataloader length: {len(train_dataloader)}, val dataloader length: {len(val_dataloader)}")
     return train_dataloader, val_dataloader

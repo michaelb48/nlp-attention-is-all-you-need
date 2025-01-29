@@ -27,7 +27,8 @@ def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip,
     total_loss = 0
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     output = None
-            
+
+    print(f"The length of the train data_loader is {len(dataloader)}")
     global batch_start
 
     last_save_time = time.time()
@@ -124,16 +125,15 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
             target = target[:, 1:]
 
             # converting the ids to tokens for bleu score
-            # pred_tokens = convert_ids_to_text(output, de_text.vocab, EOS_IDX, UNK_IDX)
-            # target_tokens = convert_ids_to_text(target, de_text.vocab, EOS_IDX, UNK_IDX)
-            pred_tokens = sp.encode_as_pieces(sp.decode(output[0].cpu().tolist()))
             target_tokens = sp.encode_as_pieces(sp.decode(target[0].cpu().tolist()))
             translation_tokens = sp.encode_as_pieces(sp.decode(translation.cpu().tolist()))
+            
             print("Expected Output:", target_tokens)
-            print("Predicted Output:", pred_tokens)
             print("Translated Output:", translation_tokens)
+            
             hypotheses += translation_tokens
             references += [[token] for token in target_tokens if token != '<mask>']
+            
             tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
     perplexity = np.exp(total_loss / len(dataloader))
@@ -148,8 +148,8 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
 
 
 def train_transformer(config_file, model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps,
-                      save_path_prefix, save_interval_in_minutes, results_save_path, average_model_weight_num, sp, es_patience=5, device='cuda',
-                     beam_size, len_penalty_alpha, max_len_a, max_len_b):
+                      save_path_prefix, save_interval_in_minutes, results_save_path, average_model_weight_num, sp, device,
+                     beam_size, len_penalty_alpha, max_len_a, max_len_b,es_patience=5):
     
     global best_bleu
     patience = 0
@@ -171,18 +171,18 @@ def train_transformer(config_file, model, optimizer, criterion, train_dataloader
             writer = csv.writer(file)
             writer.writerow([epoch, train_perplexity,valid_perplexity, valid_bleu])
         
-        early stopping
+        # early stopping mechanism
         is_best = valid_bleu > best_bleu
         if is_best:
             print(f'BLEU score improved ({best_bleu:.4f} -> {valid_bleu:.4f}). Saving Model!')
             best_bleu4 = valid_bleu4
             patience = 0
-            save_checkpoint(model, optimizer, epoch, save_path_prefix, config_file=config_file):
+            save_checkpoint(model, optimizer, epoch, save_path_prefix, config_file=config_file)
         else:
             patience += 1
             print(f'Early stopping counter: {patience} out of {es_patience}')
             if patience == es_patience:
-                print(f'Early stopping! Best BLEU4: {best_bleu:.4f}')
+                print(f'Early stopping! Best BLEU: {best_bleu:.4f}')
                 break
         epoch_start +=1
     return model
@@ -190,7 +190,7 @@ def train_transformer(config_file, model, optimizer, criterion, train_dataloader
 
 if __name__ == '__main__':
     # set random seed for reproducability
-    set_seet(2630)
+    set_seed(2630)
     
     # Open and load the JSON file into a dictionary
     config_path = os.path.join(CONFIG_PATH,f"{CONFIG_FILE}.json")
@@ -288,7 +288,8 @@ if __name__ == '__main__':
         dataset,
         batch_size=batch_size_config,
         vocab=sb_vocab_dict,
-        val_split=dataset_value_split_config
+        val_split=dataset_value_split_config,
+        total_training_steps=total_training_steps
     )
     
     # set the device for experiment
@@ -398,8 +399,8 @@ if __name__ == '__main__':
                                average_model_weight_num=average_model_weight_num,
                                sp=sp,
                                es_patience=5,
-                               device='cuda',
-                               beam_size_config=beam_size,
+                               device=device,
+                               beam_size=beam_size,
                                len_penalty_alpha=len_penalty_alpha,
                                max_len_a=max_len_a,
                                max_len_b=max_len_b
