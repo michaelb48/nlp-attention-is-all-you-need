@@ -13,33 +13,35 @@ from itertools import islice
 import json
 import csv
 from torchtext.data.metrics import bleu_score
-from utils import set_seed, ensure_directory_exists, save_checkpoint
+from utils import set_seed, ensure_directory_exists, save_checkpoint, load_checkpoint
 
-# this is the path to the experiment configuration; set the values in the config file to execute a new experiment
-CONFIG_FILE = "ex_config-1-extension"
+# this is the path to the test configuration; set the values in the config file to execute a new test
+CONFIG_FILE = "ex_config-1"
 CONFIG_PATH = "config"
+TEST_MODEL_PATH = "~/groups/192.039-2024W/attentiondeficit/test-results/models/ex_config-1_avg_weights_model"
 
-def test_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_train_loop_steps,
-                                              beam_size, len_penalty_alpha, max_len_a, max_len_b):
+
+def test_fn(model,device,criterion,beam_size,len_penalty_alpha,max_len_a,max_len_b,sp,total_test_steps):
+                                   
     model.eval()
     total_loss = 0.0
     steps = 0
     hypotheses = []
     references = []
-    global in_eval
-
-    in_eval = True
+    
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     
     with torch.no_grad():
-        for batch in islice(tk0, 0, int(max_train_loop_steps*0.3)):
+        for batch in islice(tk0, 0, total_test_steps):
+
+            # move sequences to device
             source = batch[0].to(device)
             target = batch[1].to(device)
 
             # forward pass
             optimizer.zero_grad()
             output = model(source, target[:, :-1])
-            #translation = model.translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b)
+            translation = model.beam_search_translate(source, beam_size, len_penalty_alpha, max_len_a, max_len_b)
 
             # calculate the loss
             loss = criterion(
@@ -53,68 +55,62 @@ def test_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
             target = target[:, 1:]
 
             # converting the ids to tokens for bleu score
-            target_tokens = sp.encode_as_pieces(sp.decode(target[0].cpu().tolist()))
-            translation_tokens = sp.encode_as_pieces(sp.decode(output[0].cpu().tolist()))
-            
-            print("Expected Output:", target_tokens)
-            print("Predicted Output:", translation_tokens)
+            target_tokens = sp.encode_as_pieces(sp.decode(target.cpu().tolist()))
+            pred_tokens = sp.encode_as_pieces(sp.decode(output.cpu().tolist()))
+            translation_tokens = sp.encode_as_pieces(sp.decode(translation.cpu().tolist()))
             
             hypotheses += translation_tokens
             references += [[token] for token in target_tokens if token != '<mask>']
             
             tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
-    perplexity = np.exp(total_loss / len(dataloader))
+    perplexity = np.exp(total_loss / total_test_steps)
     references = [[[item[0] for item in references]]]
     hypotheses = [hypotheses]
     # Compute the BLEU score
     bleu = bleu_score(candidate_corpus=hypotheses, references_corpus=references)
-
-    in_eval = False
     
     return perplexity, bleu
 
 
-def test_transformer(config_file, model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps,
-                      save_path_prefix, save_interval_in_minutes, results_save_path, average_model_weight_num, sp, device,
-                     beam_size, len_penalty_alpha, max_len_a, max_len_b,es_patience=5):
-    
-    global best_bleu
-    patience = 0
-    clip = 1.0
-    max_train_loop_steps = total_training_steps // num_epochs
-    global epoch_start
-    
-    for epoch in range(epoch_start, num_epochs+1):
+def test_transformer(model, device, criterion, test_dataloader, beam_size, len_penalty_alpha, max_len_a, max_len_b, sp, total_test_steps, test_results_path):
 
-        # one epoch training
-        train_perplexity = train_fn(config_file, model, train_dataloader, optimizer, criterion, device, clip, save_path_prefix, save_interval_in_minutes,total_training_steps,os.path.join(results_save_path,f"{config_file}_train_results.csv"),epoch,max_train_loop_steps)
-        
-        # one epoch validation
-        valid_perplexity, valid_bleu = eval_fn(config_file, model, val_dataloader, criterion, device, sp, epoch,max_train_loop_steps,
-                                              beam_size, len_penalty_alpha, max_len_a, max_len_b)
-        
-        print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu:.4f}')
-        with open(os.path.join(results_save_path, f"{config_file}_validation_results.csv"), mode='a', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow([epoch, train_perplexity,valid_perplexity, valid_bleu])
-        
-        # early stopping mechanism
-        is_best = valid_bleu > best_bleu
-        if is_best:
-            print(f'BLEU score improved ({best_bleu:.4f} -> {valid_bleu:.4f}). Saving Model!')
-            best_bleu = valid_bleu
-            patience = 0
-            save_checkpoint(model, optimizer, epoch, save_path_prefix, config_file=config_file)
-        else:
-            patience += 1
-            print(f'Early stopping counter: {patience} out of {es_patience}')
-            if patience == es_patience:
-                print(f'Early stopping! Best BLEU: {best_bleu:.4f}')
-                break
-        epoch_start +=1
-    return model
+    # Testing tracking
+    attempt = 1
+    bleu = float('-inf')
+    perplexity = float('-inf')
+    testing_start_time = time.time()  # Total training start time
+    
+    while True:
+        try:
+            print("Starting testing!")
+            attempt_start_time = time.time()
+            perplexity, bleu = test_fn(model=model,
+                                        device=device,
+                                        dataloader=test_dataloader,
+                                        criterion=criterion,
+                                        beam_size = beam_size,
+                                        len_penalty_alpha = len_penalty_alpha,
+                                        max_len_a = max_len_a,
+                                        max_len_b = max_len_b,
+                                        sp=sp,
+                                        total_test_steps = total_test_steps)
 
+            elapsed_time = time.time() - attempt_start_time
+            
+            print(f'Time in sec: {elapsed_time}, Test perplexity: {perplexity:.4f}, Test BLEU: {bleu:.4f}')
+            with open(test_results_path, mode='a', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([elapsed_time, perplexity, bleu])
+            return elapsed_time, perplexity, bleu
+        except torch.cuda.OutOfMemoryError as e:
+            if attempt == 5:
+                print(f"All test attempts failed due to memory issues. No results available.")
+                return time.time() - testing_start_time, perplexity, bleu
+            print(f"Test attempt {attempt} failed due to memory issues. {5-attempt} attempts remaining.")
+            torch.cuda.empty_cache()
+            attempt += 1
+            continue
 
 if __name__ == '__main__':
     # set random seed for reproducability
@@ -127,27 +123,18 @@ if __name__ == '__main__':
 
     # VARIABLES FROM CONFIG FILE THAT CONTROL EXPERIMENT RUN
     pytorch_cuda_config = config.get('pytorch_cuda','max_split_size_mb:128')
-    
-    corpus_path_config = config.get('corpus_path','/corpus/df_encoded.pkl')
+
+    corpus_path_config = config.get('testcorpus_path','/test_corpus/df_encoded.pkl')
     bpe_model_path_config = config.get('bpe_model_path','/bpe/bpe_model.model')
-    results_path_config = config.get('results','results')
+    results_path_config = config.get('results_path','results')
     
     batch_size_config = config.get('batch_size',16)
-    dataset_value_split_config = config.get('dataset_value_split',0.1)
+    dataset_value_split_config = config.get('dataset_value_split',0.3)
 
-    lr_config = config.get('lr',1e-4)
-    beta1_config = config.get('beta1',0.9)
-    beta2_config = config.get('beta2',0.98)
-    eps_config = config.get('eps',1e-9)
-    warmup_steps_config = config.get('warmup_steps',4000)
-    lr_factor_config = config.get('lr_factor',1)
-
-    num_epochs_config = config.get('num_epochs', 10)
-    total_training_steps_config = config.get('total_training_steps', 100000)
-    model_save_path_config = config.get('model_save_path','/models')
-    save_interval_in_minutes_config = config.get('save_interval_in_minutes',10)
-    average_model_weight_num_config = config.get('average_model_weight_num',5)
+    label_smoothing_config = config.get('label_smoothing',0.1)
     
+    total_test_steps_config = config.get('total_test_steps', 30000)
+
     beam_size_config = config.get('beam_size',4)
     len_penalty_alpha_config = config.get('len_penalty_alpha',0.6)
     max_len_a_config = config.get('max_len_a',1)
@@ -172,23 +159,12 @@ if __name__ == '__main__':
         t_dot_product_config = True
     else:
         t_dot_product_config = False
-    label_smoothing_config = config.get('label_smoothing',0.1)
 
-    beam_size_config = config.get('beam_size',4)
-    len_penalty_alpha_config = config.get('len_penalty_alpha','max_split_size_mb:128')
-    max_len_a_config = config.get('max_len_a','max_split_size_mb:128')
-    max_len_b_config = config.get('max_len_b','max_split_size_mb:128')
-    
-        
-    # INIT EXPERIMENT RUN
+    # INIT TEST RUN
     
     # set general training parameters
-    num_epochs = num_epochs_config
-    total_training_steps = total_training_steps_config
-    model_save_path = model_save_path_config
+    total_test_steps = total_test_steps_config
     results_save_path = results_path_config
-    save_interval_in_minutes = save_interval_in_minutes_config
-    average_model_weight_num = average_model_weight_num_config
     
     # set cuda configuration for experiments
     print(f"Cuda allocation configuration is: {pytorch_cuda_config} ...")
@@ -212,7 +188,7 @@ if __name__ == '__main__':
     print("Creating dataset ...")
     dataset = TranslationDataset(df_corpus, sb_vocab_list)
     print("Creating data loaders ...")
-    train_dataloader, val_dataloader = create_train_val_dataloaders(
+    test_dataloader, _ = create_train_val_dataloaders(
         dataset,
         batch_size=batch_size_config,
         vocab=sb_vocab_dict,
@@ -225,8 +201,8 @@ if __name__ == '__main__':
     if device == 'cuda':
         torch.cuda.empty_cache()
 
-    # initialize the model
-    print("Initializing model ...")
+    # loading the model
+    print("Loading model ...")
     model = Transformer(
         n_vocab_len=sb_vocab_size,
         i_vocab_padding=sb_vocab_dict['<mask>'],
@@ -244,35 +220,7 @@ if __name__ == '__main__':
         t_dot_product=t_dot_product_config
     ).to(device)
 
-    d_model_config = config.get('d_model_config',512)
-    
-    d_dec_ff_inner_config = config.get('d_dec_ff_inner',2048)
-    t_dec_heads_config = config.get('t_dec_heads',8)
-    t_dec_layer_num_config = config.get('t_dec_layer_num',6)
-    
-    d_enc_ff_inner_config = config.get('d_enc_ff_inner',2048)
-    t_enc_heads_config = config.get('t_enc_heads',8)
-    t_enc_layer_num_config = config.get('t_enc_layer_num',6)
-    
-    d_query_key_head_config = config.get('d_query_key_head',64)
-    d_value_head_config = config.get('d_value_head',64)
-    
-    t_dropout_config = config.get('t_dropout',0.1)
-    t_dot_product_config = config.get('t_dot_product',True)
-
-    
-    # initialize the optimizer
-    print("Initializing optimizer ...")
-    optimizer = CustomOptim(
-        optimizer=torch.optim.Adam(model.parameters(), lr=lr_config, betas=(beta1_config, beta2_config), eps=eps_config),
-        lr=lr_config,
-        beta1 = beta1_config,
-        beta2 = beta2_config,
-        eps=eps_config,
-        d_model=sb_vocab_size,
-        n_warmup_steps=warmup_steps_config, 
-        lr_factor=lr_factor_config
-    )
+    model = load_checkpoint(file_path=TEST_MODEL_PATH, model=model, device=device).to(device)
 
     # initialize criterion (loss function)
     criterion = nn.CrossEntropyLoss(ignore_index=sb_vocab_dict['<mask>'],label_smoothing=label_smoothing_config)
@@ -283,68 +231,34 @@ if __name__ == '__main__':
     max_len_a = max_len_a_config
     max_len_b = max_len_b_config
 
-    # make sure the directories for storing the models and results exist
+    # make sure the directories for storing the results exist
     ensure_directory_exists(results_save_path)
-    ensure_directory_exists(model_save_path)
                             
-    # create results file for training and validation to ease plotting
-    train_results_path = os.path.join(results_save_path, f"{CONFIG_FILE}_train_results.csv")
-    validation_results_path = os.path.join(results_save_path, f"{CONFIG_FILE}_validation_results.csv")
+    # create results file for testing to ease plotting
+    test_results_path = os.path.join(results_save_path, f"{CONFIG_FILE}_test_results.csv")
 
     # create the files with headers
-    with open(train_results_path, mode='w', newline='') as file:
+    with open(test_results_path, mode='w', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow(["Epoch", "Step", "Loss", "Learning Rate"])
-    with open(validation_results_path, mode='w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(["Epoch","TrainPerplexity", "ValidPerplexity", "Bleu"])
-
+        writer.writerow(["time","perplexity", "bleu"])
     
-    # START TRAINING
-    # Training tracking
-    batch_start = 0
-    epoch_start = 0
-    in_eval = False
-    best_bleu = float('-inf')
-    start_time = time.time()  # Total training start time
+    # START TESTING
+    elapsed_time, perp, bleu = test_transformer(model=model,
+                                                device=device,
+                                                test_dataloader=test_dataloader,
+                                                criterion=criterion,
+                                                beam_size = beam_size,
+                                                len_penalty_alpha = len_penalty_alpha,
+                                                max_len_a = max_len_a,
+                                                max_len_b = max_len_b,
+                                                sp=sp,
+                                                total_test_steps = total_test_steps_config,
+                                                test_results_path = test_results_path)
     
-    while True:
-        print(f"Inside while with batch_start = {batch_start}")
-        try:
-            print("Starting training!")
-            train_transformer(config_file=CONFIG_FILE,
-                               model=model,
-                               optimizer=optimizer,
-                               criterion=criterion,
-                               train_dataloader=train_dataloader,
-                               val_dataloader=val_dataloader,
-                               num_epochs=num_epochs,
-                               total_training_steps=total_training_steps,
-                               save_path_prefix=model_save_path,
-                               save_interval_in_minutes=save_interval_in_minutes,
-                               results_save_path=results_save_path,
-                               average_model_weight_num=average_model_weight_num,
-                               sp=sp,
-                               es_patience=5,
-                               device=device,
-                               beam_size=beam_size,
-                               len_penalty_alpha=len_penalty_alpha,
-                               max_len_a=max_len_a,
-                               max_len_b=max_len_b
-                              )
-        except torch.cuda.OutOfMemoryError as e:
-            print(f"Skipping to: {batch_start}")
-            torch.cuda.empty_cache()
-            continue
+    # Calculate elapsed time
+    hours = int(elapsed_time // 3600)
+    minutes = int((elapsed_time % 3600) // 60)
+    seconds = int(elapsed_time % 60)
 
-        end_time = time.time()
-
-        # Calculate elapsed time
-        elapsed_time = end_time - start_time
-        hours = int(elapsed_time // 3600)
-        minutes = int((elapsed_time % 3600) // 60)
-        seconds = int(elapsed_time % 60)
-
-        print(f"The complete training took {hours:02}:{minutes:02}:{seconds:02} (HH:MM:SS).")
-        save_checkpoint(model, optimizer, 'end', model_save_path, config_file=CONFIG_FILE)
-        break
+    print(f"The complete test took {hours:02}:{minutes:02}:{seconds:02} (HH:MM:SS).")
+    print(f'The model achieved testing perplexity: {perp:.4f} and testing BLEU: {bleu:.4f}')
