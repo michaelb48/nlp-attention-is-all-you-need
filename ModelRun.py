@@ -100,6 +100,7 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
     references = []
     global in_eval
 
+    in_eval = True
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
     
     with torch.no_grad():
@@ -110,7 +111,7 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
             # forward pass
             optimizer.zero_grad()
             output = model(source, target[:, :-1])
-            translation = model.translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b)
+            #translation = model.translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b)
 
             # calculate the loss
             loss = criterion(
@@ -125,10 +126,10 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
 
             # converting the ids to tokens for bleu score
             target_tokens = sp.encode_as_pieces(sp.decode(target[0].cpu().tolist()))
-            translation_tokens = sp.encode_as_pieces(sp.decode(translation.cpu().tolist()))
+            translation_tokens = sp.encode_as_pieces(sp.decode(output[0].cpu().tolist()))
             
             print("Expected Output:", target_tokens)
-            print("Translated Output:", translation_tokens)
+            print("Predicted Output:", translation_tokens)
             
             hypotheses += translation_tokens
             references += [[token] for token in target_tokens if token != '<mask>']
@@ -139,11 +140,11 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
     references = [[[item[0] for item in references]]]
     hypotheses = [hypotheses]
     # Compute the BLEU score
-    bleu_score = bleu_score(candidate_corpus=hypotheses, references_corpus=references)
+    bleu = bleu_score(candidate_corpus=hypotheses, references_corpus=references)
 
     in_eval = False
     
-    return perplexity, bleu_score
+    return perplexity, bleu
 
 
 def train_transformer(config_file, model, optimizer, criterion, train_dataloader, val_dataloader, num_epochs, total_training_steps,
@@ -166,7 +167,7 @@ def train_transformer(config_file, model, optimizer, criterion, train_dataloader
                                               beam_size, len_penalty_alpha, max_len_a, max_len_b)
         
         print(f'Epoch: {epoch}, Train perplexity: {train_perplexity:.4f}, Valid perplexity: {valid_perplexity:.4f}, Valid BLEU4: {valid_bleu:.4f}')
-        with open(os.path.join(results, "validation_results.csv"), mode='a', newline='') as file:
+        with open(os.path.join(results_save_path, f"{config_file}_validation_results.csv"), mode='a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([epoch, train_perplexity,valid_perplexity, valid_bleu])
         
@@ -174,7 +175,7 @@ def train_transformer(config_file, model, optimizer, criterion, train_dataloader
         is_best = valid_bleu > best_bleu
         if is_best:
             print(f'BLEU score improved ({best_bleu:.4f} -> {valid_bleu:.4f}). Saving Model!')
-            best_bleu4 = valid_bleu4
+            best_bleu = valid_bleu
             patience = 0
             save_checkpoint(model, optimizer, epoch, save_path_prefix, config_file=config_file)
         else:
