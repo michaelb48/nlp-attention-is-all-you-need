@@ -49,7 +49,7 @@ def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip,
 
         # forward pass
         optimizer.zero_grad()
-        output,_ = model(source, target[:, :-1])
+        output = model(source, target[:, :-1])
 
         # calculate the loss
         loss = criterion(
@@ -85,7 +85,7 @@ def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip,
             save_checkpoint(model,optimizer,epoch,save_path_prefix,step,config_file)
             last_save_time = time.time()
 
-        tk0.set_postfix(loss=total_loss / step)
+        tk0.set_postfix(loss=total_loss / max_train_loop_steps)
     tk0.close()
     perplexity = np.exp(total_loss / step)
 
@@ -110,7 +110,7 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
 
             # forward pass
             optimizer.zero_grad()
-            output,_ = model(source, target[:, :-1])
+            output = model(source, target[:, :-1])
             #translation = model.translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b)
 
             # calculate the loss
@@ -125,8 +125,8 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
             target = target[:, 1:]
 
             # converting the ids to tokens for bleu score
-            target_tokens = sp.encode_as_pieces(sp.decode(target.cpu().tolist()))
-            translation_tokens = sp.encode_as_pieces(sp.decode(output.cpu().tolist()))
+            target_tokens = sp.encode_as_pieces(sp.decode(target[0].cpu().tolist()))
+            translation_tokens = sp.encode_as_pieces(sp.decode(output[0].cpu().tolist()))
             
             print("Expected Output:", target_tokens)
             print("Predicted Output:", translation_tokens)
@@ -136,7 +136,7 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
             
             tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
-    perplexity = np.exp(total_loss / steps)
+    perplexity = np.exp(total_loss / total_steps)
     references = [[[item[0] for item in references]]]
     hypotheses = [hypotheses]
     # Compute the BLEU score

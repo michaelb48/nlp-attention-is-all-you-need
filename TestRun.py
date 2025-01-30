@@ -8,12 +8,11 @@ from tqdm import tqdm
 import sentencepiece as spm
 from Transformer import Transformer
 from TranslationDataset import TranslationDataset, create_train_val_dataloaders
-from Optimizer import CustomOptim
 from itertools import islice
 import json
 import csv
 from torchtext.data.metrics import bleu_score
-from utils import set_seed, ensure_directory_exists, save_checkpoint, load_checkpoint
+from utils import set_seed, ensure_directory_exists, load_checkpoint
 
 # this is the path to the test configuration; set the values in the config file to execute a new test
 CONFIG_FILE = "ex_config-1"
@@ -39,9 +38,8 @@ def test_fn(model,device,criterion,beam_size,len_penalty_alpha,max_len_a,max_len
             target = batch[1].to(device)
 
             # forward pass
-            optimizer.zero_grad()
             output = model(source, target[:, :-1])
-            translation = model.beam_search_translate(source, beam_size, len_penalty_alpha, max_len_a, max_len_b)
+            translation = model.beam_search_translate(source[0], beam_size, len_penalty_alpha, max_len_a, max_len_b)
 
             # calculate the loss
             loss = criterion(
@@ -55,8 +53,8 @@ def test_fn(model,device,criterion,beam_size,len_penalty_alpha,max_len_a,max_len
             target = target[:, 1:]
 
             # converting the ids to tokens for bleu score
-            target_tokens = sp.encode_as_pieces(sp.decode(target.cpu().tolist()))
-            pred_tokens = sp.encode_as_pieces(sp.decode(output.cpu().tolist()))
+            target_tokens = sp.encode_as_pieces(sp.decode(target[0].cpu().tolist()))
+            pred_tokens = sp.encode_as_pieces(sp.decode(output[0].cpu().tolist()))
             translation_tokens = sp.encode_as_pieces(sp.decode(translation.cpu().tolist()))
             
             hypotheses += translation_tokens
