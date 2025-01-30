@@ -85,9 +85,9 @@ def train_fn(config_file, model, dataloader, optimizer, criterion, device, clip,
             save_checkpoint(model,optimizer,epoch,save_path_prefix,step,config_file)
             last_save_time = time.time()
 
-        tk0.set_postfix(loss=total_loss / step)
+        tk0.set_postfix(loss=total_loss / max_train_loop_steps)
     tk0.close()
-    perplexity = np.exp(total_loss / len(dataloader))
+    perplexity = np.exp(total_loss / step)
 
     return perplexity
 
@@ -102,9 +102,9 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
 
     in_eval = True
     tk0 = tqdm(dataloader, total=len(dataloader), position=0, leave=True)
-    
+    total_steps = int(max_train_loop_steps*0.3)
     with torch.no_grad():
-        for batch in islice(tk0, 0, int(max_train_loop_steps*0.3)):
+        for batch in islice(tk0, 0, total_steps):
             source = batch[0].to(device)
             target = batch[1].to(device)
 
@@ -136,7 +136,7 @@ def eval_fn(config_file, model, dataloader, criterion, device, sp, epoch,max_tra
             
             tk0.set_postfix(loss=total_loss / steps)
     tk0.close()
-    perplexity = np.exp(total_loss / len(dataloader))
+    perplexity = np.exp(total_loss / total_steps)
     references = [[[item[0] for item in references]]]
     hypotheses = [hypotheses]
     # Compute the BLEU score

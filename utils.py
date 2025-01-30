@@ -126,8 +126,8 @@ def load_checkpoint(file_path, model, device='cpu'):
         raise FileNotFoundError(f"No checkpoint found at '{file_path}'")
 
     checkpoint = torch.load(file_path, map_location=device)
+    
     print(f"Loaded checkpoint from '{file_path}'")
-
     # Use the state_dict of the loaded model
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(device)
