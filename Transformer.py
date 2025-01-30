@@ -4,6 +4,7 @@ from PositionalEncoding import PositionalEncoding
 from Decoder import Decoder
 from Encoder import Encoder
 import math
+import torch.nn.functional as F
 
 class Transformer(nn.Module):
     ''' A sequence to sequence model with attention mechanism. '''
@@ -105,18 +106,3 @@ class Transformer(nn.Module):
 
         # compute linear projection back to vocab
         return self.linear_to_vocab(dec_output)
-
-    # Method is necessary for beam search
-    def translate(source,beam_size, len_penalty_alpha, max_len_a, max_len_b):
-        # create attention masks for relevant tokens
-        src_seq_mask = self.get_attention_mask(source)
-        src_seq_embedding_position_encoded = self.positional_encoding(self.vocab_embedding(source) * (self.scaling))
-        enc_output = self.encoder(self.dropout(src_seq_embedding_position_encoded), src_seq_mask)
-
-
-
-
-
-
-
-
