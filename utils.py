@@ -33,6 +33,46 @@ def ensure_directory_exists(path:str):
     if directory and not os.path.exists(directory):
         os.makedirs(directory)
 
+def get_model_paths(path_to_results, model_name_starts_with):
+    """
+    Gets the paths of the models that start with "model_name_starts_with"
+
+    Args:
+        path_to_results (str): The path to the folder containing the results.
+        model_name_starts_with (str): The name of the model that starts with.
+
+    Returns:
+        A list of paths to the model files.
+    """
+    all_files = os.listdir(path_to_results)
+    model_files = [file for file in all_files if file.startswith(model_name_starts_with)]
+    model_files = [os.path.join(path_to_results, filename) for filename in model_files]
+    print(f"Loading {len(model_files)} files from model:")
+    for file in model_files:
+        print(file)
+    print("")
+    return model_files
+
+def load_state_dicts(file_paths):
+    """
+    Loads the state dictionaries of the given file paths
+
+    Args:
+        file_paths (str): The paths to the models.
+
+    Returns:
+        A list of state dictionaries.
+    """
+    state_dicts = []
+    print("Loading model state dicts:")
+    for file in file_paths:
+        loaded_dict = torch.load(file, map_location="cpu")
+        if "model_state_dict" in loaded_dict:
+            print(f"Extracting 'model_state_dict' from checkpoint in {file}")
+            state_dicts.append(loaded_dict["model_state_dict"])
+    print("")
+    return state_dicts
+
 def average_model_weights(state_dicts):
     """
     Averages the weights from multiple state_dicts.
@@ -44,11 +84,25 @@ def average_model_weights(state_dicts):
         Averaged state_dict.
     """
     avg_state_dict = copy.deepcopy(state_dicts[0])
+    print("Averaging model...")
     for key in avg_state_dict.keys():
         for state_dict in state_dicts[1:]:
             avg_state_dict[key] += state_dict[key]
         avg_state_dict[key] /= len(state_dicts)
     return avg_state_dict
+
+def save_avg_model_weights(save_path, save_name, avg_state_dict):
+    """
+    Saves the averaged state_dicts of all model checkpoints in the given path.
+
+    Args:
+        save_path (str): The path to save the averaged state_dicts.
+        save_name (str): The name of the averaged state_dicts.
+        avg_state_dict (dict): Averaged state_dicts.
+    """
+    final_save_path = os.path.join(save_path, save_name)
+    torch.save(avg_state_dict, final_save_path)
+    print(f"Averaged model saved to {final_save_path}\n")
 
 def save_checkpoint(model, optimizer, epoch, save_dir,step=None, config_file=None):
     if not os.path.exists(save_dir):
